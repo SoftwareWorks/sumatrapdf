@@ -32,21 +32,16 @@
 
 #ifdef DEBUG
 #define _CRTDBG_MAP_ALLOC
-#endif
-
-#include <algorithm>
-#include <stdlib.h>
-
-// TODO: this breaks placement new
-#ifdef DEBUG
 #include <crtdbg.h>
+// TODO: this breaks placement new but without this we
+// don't get leaked memory allocation source
 #define DEBUG_NEW new(_NORMAL_BLOCK, __FILE__, __LINE__)
 #define new DEBUG_NEW
 #endif
 
+// Most common C includes
+#include <stdlib.h>
 #include <string.h>
-
-/* Few most common includes for C stdlib */
 #include <assert.h>
 #include <float.h>
 #include <stddef.h>
@@ -65,8 +60,16 @@
 #include "mingw_compat.h"
 #endif
 
+// most common c++ includes
+#include <algorithm>
 #include <functional>
 #include <memory>
+#include <string>
+#include <array>
+#include <vector>
+//#include <iostream>
+//#include <locale>
+#include <codecvt>
 
 template <typename T>
 inline T *AllocArray(size_t n)
@@ -419,8 +422,8 @@ public:
 };
 
 #include "GeomUtil.h"
-#include "Scoped.h"
 #include "StrUtil.h"
+#include "Scoped.h"
 #include "Vec.h"
 
 /* In debug mode, VS 2010 instrumentations complains about GetRValue() etc.

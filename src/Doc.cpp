@@ -16,117 +16,113 @@
 #include "EbookFormatter.h"
 #include "Doc.h"
 
-Doc::Doc(const Doc& other)
-{
+Doc::Doc(const Doc& other) {
     Clear();
     type = other.type;
     generic = other.generic;
     error = other.error;
-    filePath.Set(str::Dup(other.filePath));
+    filePath.SetCopy(other.filePath);
 }
 
-Doc& Doc::operator=(const Doc& other)
-{
+Doc& Doc::operator=(const Doc& other) {
     if (this != &other) {
         type = other.type;
         generic = other.generic;
         error = other.error;
-        filePath.Set(str::Dup(other.filePath));
+        filePath.SetCopy(other.filePath);
     }
     return *this;
 }
 
-Doc::~Doc()
-{
-}
+Doc::~Doc() {}
 
 // delete underlying object
-void Doc::Delete()
-{
+void Doc::Delete() {
     switch (type) {
-    case Doc_Epub:
-        delete epubDoc;
-        break;
-    case Doc_Fb2:
-        delete fb2Doc;
-        break;
-    case Doc_Mobi:
-        delete mobiDoc;
-        break;
-    case Doc_Pdb:
-        delete palmDoc;
-        break;
-    case Doc_None:
-        break;
-    default:
-        CrashIf(true);
-        break;
+        case DocType::Epub:
+            delete epubDoc;
+            break;
+        case DocType::Fb2:
+            delete fb2Doc;
+            break;
+        case DocType::Mobi:
+            delete mobiDoc;
+            break;
+        case DocType::Pdb:
+            delete palmDoc;
+            break;
+        case DocType::None:
+            break;
+        default:
+            CrashIf(true);
+            break;
     }
 
     Clear();
 }
 
-Doc::Doc(EpubDoc *doc)
-{
+Doc::Doc(EpubDoc* doc) {
     Clear();
-    type = doc ? Doc_Epub : Doc_None;
+    if (doc == nullptr)
+        return;
+    type = DocType::Epub;
     epubDoc = doc;
 }
 
-Doc::Doc(Fb2Doc *doc)
-{
+Doc::Doc(Fb2Doc* doc) {
     Clear();
-    type = doc ? Doc_Fb2 : Doc_None;
+    if (doc == nullptr)
+        return;
+    type = DocType::Fb2;
     fb2Doc = doc;
 }
 
-Doc::Doc(MobiDoc *doc)
-{
+Doc::Doc(MobiDoc* doc) {
     Clear();
-    type = doc ? Doc_Mobi : Doc_None;
+    if (doc == nullptr)
+        return;
+    type = DocType::Mobi;
     mobiDoc = doc;
 }
 
-Doc::Doc(PalmDoc *doc)
-{
+Doc::Doc(PalmDoc* doc) {
     Clear();
-    type = doc ? Doc_Pdb : Doc_None;
+    if (doc == nullptr)
+        return;
+    type = DocType::Pdb;
     palmDoc = doc;
 }
 
-void Doc::Clear()
-{
-    type = Doc_None;
+void Doc::Clear() {
+    type = DocType::None;
     generic = nullptr;
-    error = Error_None;
+    error = DocError::None;
     filePath.Set(nullptr);
 }
 
 // the caller should make sure there is a document object
-const WCHAR *Doc::GetFilePathFromDoc() const
-{
+const WCHAR* Doc::GetFilePathFromDoc() const {
     switch (type) {
-    case Doc_Epub:
-        return epubDoc->GetFileName();
-    case Doc_Fb2:
-        return fb2Doc->GetFileName();
-    case Doc_Mobi:
-        return mobiDoc->GetFileName();
-    case Doc_Pdb:
-        return palmDoc->GetFileName();
-    case Doc_None:
-        return nullptr;
-    default:
-        CrashIf(true);
-        return nullptr;
+        case DocType::Epub:
+            return epubDoc->GetFileName();
+        case DocType::Fb2:
+            return fb2Doc->GetFileName();
+        case DocType::Mobi:
+            return mobiDoc->GetFileName();
+        case DocType::Pdb:
+            return palmDoc->GetFileName();
+        case DocType::None:
+            return nullptr;
+        default:
+            CrashIf(true);
+            return nullptr;
     }
 }
 
-const WCHAR *Doc::GetFilePath() const
-{
+const WCHAR* Doc::GetFilePath() const {
     if (filePath) {
         // verify it's consistent with the path in the doc
-        const WCHAR *docPath = GetFilePathFromDoc();
+        const WCHAR* docPath = GetFilePathFromDoc();
         CrashIf(docPath && !str::Eq(filePath, docPath));
         return filePath;
     }
@@ -134,143 +130,134 @@ const WCHAR *Doc::GetFilePath() const
     return GetFilePathFromDoc();
 }
 
-const WCHAR *Doc::GetDefaultFileExt() const
-{
+const WCHAR* Doc::GetDefaultFileExt() const {
     switch (type) {
-    case Doc_Epub:
-        return L".epub";
-    case Doc_Fb2:
-        return fb2Doc->IsZipped() ? L".fb2z" : L".fb2";
-    case Doc_Mobi:
-        return L".mobi";
-    case Doc_Pdb:
-        return L".pdb";
-    case Doc_None:
-        return nullptr;
-    default:
-        CrashIf(true);
-        return nullptr;
+        case DocType::Epub:
+            return L".epub";
+        case DocType::Fb2:
+            return fb2Doc->IsZipped() ? L".fb2z" : L".fb2";
+        case DocType::Mobi:
+            return L".mobi";
+        case DocType::Pdb:
+            return L".pdb";
+        case DocType::None:
+            return nullptr;
+        default:
+            CrashIf(true);
+            return nullptr;
     }
 }
 
-WCHAR *Doc::GetProperty(DocumentProperty prop) const
-{
+WCHAR* Doc::GetProperty(DocumentProperty prop) const {
     switch (type) {
-    case Doc_Epub:
-        return epubDoc->GetProperty(prop);
-    case Doc_Fb2:
-        return fb2Doc->GetProperty(prop);
-    case Doc_Mobi:
-        return mobiDoc->GetProperty(prop);
-    case Doc_Pdb:
-        return palmDoc->GetProperty(prop);
-    case Doc_None:
-        return nullptr;
-    default:
-        CrashIf(true);
-        return nullptr;
+        case DocType::Epub:
+            return epubDoc->GetProperty(prop);
+        case DocType::Fb2:
+            return fb2Doc->GetProperty(prop);
+        case DocType::Mobi:
+            return mobiDoc->GetProperty(prop);
+        case DocType::Pdb:
+            return palmDoc->GetProperty(prop);
+        case DocType::None:
+            return nullptr;
+        default:
+            CrashIf(true);
+            return nullptr;
     }
 }
 
-const char *Doc::GetHtmlData(size_t &len) const
-{
+const char* Doc::GetHtmlData(size_t& len) const {
     switch (type) {
-    case Doc_Epub:
-        return epubDoc->GetHtmlData(&len);
-    case Doc_Fb2:
-        return fb2Doc->GetXmlData(&len);
-    case Doc_Mobi:
-        return mobiDoc->GetHtmlData(len);
-    case Doc_Pdb:
-        return palmDoc->GetHtmlData(&len);
-    default:
-        CrashIf(true);
-        return nullptr;
+        case DocType::Epub:
+            return epubDoc->GetHtmlData(&len);
+        case DocType::Fb2:
+            return fb2Doc->GetXmlData(&len);
+        case DocType::Mobi:
+            return mobiDoc->GetHtmlData(len);
+        case DocType::Pdb:
+            return palmDoc->GetHtmlData(&len);
+        default:
+            CrashIf(true);
+            return nullptr;
     }
 }
 
-size_t Doc::GetHtmlDataSize() const
-{
+size_t Doc::GetHtmlDataSize() const {
     switch (type) {
-    case Doc_Epub:
-        return epubDoc->GetHtmlDataSize();
-    case Doc_Fb2:
-        return fb2Doc->GetXmlDataSize();
-    case Doc_Mobi:
-        return mobiDoc->GetHtmlDataSize();
-    case Doc_Pdb:
-        return palmDoc->GetHtmlDataSize();
-    default:
-        CrashIf(true);
-        return 0;
+        case DocType::Epub:
+            return epubDoc->GetHtmlDataSize();
+        case DocType::Fb2:
+            return fb2Doc->GetXmlDataSize();
+        case DocType::Mobi:
+            return mobiDoc->GetHtmlDataSize();
+        case DocType::Pdb:
+            return palmDoc->GetHtmlDataSize();
+        default:
+            CrashIf(true);
+            return 0;
     }
 }
 
-ImageData *Doc::GetCoverImage() const
-{
+ImageData* Doc::GetCoverImage() const {
     switch (type) {
-    case Doc_Fb2:
-        return fb2Doc->GetCoverImage();
-    case Doc_Mobi:
-        return mobiDoc->GetCoverImage();
-    case Doc_Epub:
-    case Doc_Pdb:
-    default:
-        return nullptr;
+        case DocType::Fb2:
+            return fb2Doc->GetCoverImage();
+        case DocType::Mobi:
+            return mobiDoc->GetCoverImage();
+        case DocType::Epub:
+        case DocType::Pdb:
+        default:
+            return nullptr;
     }
 }
 
-bool Doc::HasToc() const
-{
+bool Doc::HasToc() const {
     switch (type) {
-    case Doc_Epub:
-        return epubDoc->HasToc();
-    case Doc_Fb2:
-        return fb2Doc->HasToc();
-    case Doc_Mobi:
-        return mobiDoc->HasToc();
-    case Doc_Pdb:
-        return palmDoc->HasToc();
-    default:
-        return false;
+        case DocType::Epub:
+            return epubDoc->HasToc();
+        case DocType::Fb2:
+            return fb2Doc->HasToc();
+        case DocType::Mobi:
+            return mobiDoc->HasToc();
+        case DocType::Pdb:
+            return palmDoc->HasToc();
+        default:
+            return false;
     }
 }
 
-bool Doc::ParseToc(EbookTocVisitor *visitor) const
-{
+bool Doc::ParseToc(EbookTocVisitor* visitor) const {
     switch (type) {
-    case Doc_Epub:
-        return epubDoc->ParseToc(visitor);
-    case Doc_Fb2:
-        return fb2Doc->ParseToc(visitor);
-    case Doc_Mobi:
-        return mobiDoc->ParseToc(visitor);
-    case Doc_Pdb:
-        return palmDoc->ParseToc(visitor);
-    default:
-        return false;
+        case DocType::Epub:
+            return epubDoc->ParseToc(visitor);
+        case DocType::Fb2:
+            return fb2Doc->ParseToc(visitor);
+        case DocType::Mobi:
+            return mobiDoc->ParseToc(visitor);
+        case DocType::Pdb:
+            return palmDoc->ParseToc(visitor);
+        default:
+            return false;
     }
 }
 
-HtmlFormatter *Doc::CreateFormatter(HtmlFormatterArgs *args) const
-{
+HtmlFormatter* Doc::CreateFormatter(HtmlFormatterArgs* args) const {
     switch (type) {
-    case Doc_Epub:
-        return new EpubFormatter(args, epubDoc);
-    case Doc_Fb2:
-        return new Fb2Formatter(args, fb2Doc);
-    case Doc_Mobi:
-        return new MobiFormatter(args, mobiDoc);
-    case Doc_Pdb:
-        return new HtmlFormatter(args);
-    default:
-        CrashIf(true);
-        return nullptr;
+        case DocType::Epub:
+            return new EpubFormatter(args, epubDoc);
+        case DocType::Fb2:
+            return new Fb2Formatter(args, fb2Doc);
+        case DocType::Mobi:
+            return new MobiFormatter(args, mobiDoc);
+        case DocType::Pdb:
+            return new HtmlFormatter(args);
+        default:
+            CrashIf(true);
+            return nullptr;
     }
 }
 
-Doc Doc::CreateFromFile(const WCHAR *filePath)
-{
+Doc Doc::CreateFromFile(const WCHAR* filePath) {
     Doc doc;
     if (EpubDoc::IsSupportedFile(filePath))
         doc = Doc(EpubDoc::CreateFromFile(filePath));
@@ -285,28 +272,23 @@ Doc Doc::CreateFromFile(const WCHAR *filePath)
             if (PalmDoc::IsSupportedFile(filePath))
                 doc = Doc(PalmDoc::CreateFromFile(filePath));
         }
-    }
-    else if (PalmDoc::IsSupportedFile(filePath))
+    } else if (PalmDoc::IsSupportedFile(filePath))
         doc = Doc(PalmDoc::CreateFromFile(filePath));
 
     // if failed to load and more specific error message hasn't been
     // set above, set a generic error message
     if (doc.IsNone()) {
-        CrashIf(doc.error);
-        doc.error = Error_Unknown;
-        doc.filePath.Set(str::Dup(filePath));
-    }
-    else {
+        CrashIf(doc.error != DocError::None);
+        doc.error = DocError::Unknown;
+        doc.filePath.SetCopy(filePath);
+    } else {
         CrashIf(!Doc::IsSupportedFile(filePath));
     }
     CrashIf(!doc.generic && !doc.IsNone());
     return doc;
 }
 
-bool Doc::IsSupportedFile(const WCHAR *filePath, bool sniff)
-{
-    return EpubDoc::IsSupportedFile(filePath, sniff) ||
-           Fb2Doc::IsSupportedFile(filePath, sniff) ||
-           MobiDoc::IsSupportedFile(filePath, sniff) ||
-           PalmDoc::IsSupportedFile(filePath, sniff);
+bool Doc::IsSupportedFile(const WCHAR* filePath, bool sniff) {
+    return EpubDoc::IsSupportedFile(filePath, sniff) || Fb2Doc::IsSupportedFile(filePath, sniff) ||
+           MobiDoc::IsSupportedFile(filePath, sniff) || PalmDoc::IsSupportedFile(filePath, sniff);
 }

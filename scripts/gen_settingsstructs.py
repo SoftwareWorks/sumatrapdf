@@ -368,12 +368,16 @@ SessionData = [
 ]
 
 GlobalPrefs = [
-	Comment("For documentation, see http://www.sumatrapdfreader.org/settings%s.html" % util.get_sumatrapdf_version()),
+	Comment("For documentation, see https://www.sumatrapdfreader.org/settings%s.html" % util.get_sumatrapdf_version()),
 	EmptyLine(),
 
 	Field("MainWindowBackground", Color, RGB(0xFF, 0xF2, 0x00, a=0x80),
 		"background color of the non-document windows, traditionally yellow",
 		expert=True),
+
+	# Field("ThemeName", Utf8String, "light",
+	#	"the name of the theme to use"),
+
 	Field("EscToExit", Bool, False,
 		"if true, Esc key closes SumatraPDF",
 		expert=True),

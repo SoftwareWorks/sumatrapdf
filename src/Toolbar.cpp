@@ -17,6 +17,7 @@
 #include "TextSelection.h"
 #include "TextSearch.h"
 // ui
+#include "Colors.h"
 #include "SumatraPDF.h"
 #include "WindowInfo.h"
 #include "TabInfo.h"
@@ -26,6 +27,11 @@
 #include "Search.h"
 #include "Toolbar.h"
 #include "Translations.h"
+
+// TODO: experimenting with matching toolbar colors with theme
+// Doesn't work, probably have to implement a custom toolbar control
+// where we draw everything ourselves.
+// #define USE_THEME_COLORS 1
 
 struct ToolbarButtonInfo {
     /* index in the toolbar bitmap (-1 for separators) */
@@ -157,7 +163,7 @@ void UpdateToolbarButtonsToolTipsForWindow(WindowInfo *win)
         const WCHAR *translation = trans::GetTranslation(txt);
         BuildTBBUTTONINFO(buttonInfo, translation);
         res = SendMessage(hwnd, TB_SETBUTTONINFO, buttonId, (LPARAM)&buttonInfo);
-        assert(0 != res);
+        AssertCrash(0 != res);
     }
 }
 
@@ -218,7 +224,7 @@ void UpdateFindbox(WindowInfo* win)
 
 static HBITMAP LoadExternalBitmap(HINSTANCE hInst, WCHAR * fileName, INT resourceId, bool useDibSection)
 {
-    ScopedMem<WCHAR> path(AppGenDataFilename(fileName));
+    AutoFreeW path(AppGenDataFilename(fileName));
 
     UINT flags = useDibSection ? LR_CREATEDIBSECTION : 0;
     if (path) {
@@ -238,9 +244,18 @@ static LRESULT CALLBACK WndProcToolbar(HWND hwnd, UINT message, WPARAM wParam, L
         if ((win && win->hwndFindBg != hStatic && win->hwndPageBg != hStatic) || theme::IsAppThemed())
         {
             HDC hdc = (HDC)wParam;
+#if defined(USE_THEME_COLORS)
             SetTextColor(hdc, GetSysColor(COLOR_WINDOWTEXT));
+            SetBkColor(hdc, GetCurrentTheme()->mainWindow.backgroundColor);
+            //SetBkMode(hdc, TRANSPARENT);
+            auto br = CreateSolidBrush(GetCurrentTheme()->mainWindow.backgroundColor);
+#else
+            auto col = GetAppColor(AppColor::DocumentText);
+            SetTextColor(hdc, col);
             SetBkMode(hdc, TRANSPARENT);
-            return (LRESULT)GetStockBrush(NULL_BRUSH);
+            auto br = GetStockBrush(NULL_BRUSH);
+#endif
+            return (LRESULT)br;
         }
     }
     if (WM_COMMAND == message) {
@@ -422,7 +437,7 @@ static LRESULT CALLBACK WndProcPageBox(HWND hwnd, UINT message, WPARAM wParam, L
     } else if (WM_CHAR == message) {
         switch (wParam) {
         case VK_RETURN: {
-            ScopedMem<WCHAR> buf(win::GetText(win->hwndPageBox));
+            AutoFreeW buf(win::GetText(win->hwndPageBox));
             int newPageNo = win->ctrl->GetPageByLabel(buf);
             if (win->ctrl->ValidPageNo(newPageNo)) {
                 win->ctrl->GoToPage(newPageNo, true);
@@ -486,7 +501,7 @@ void UpdateToolbarPageText(WindowInfo *win, int pageCount, bool updateOnly)
         buf = str::Format(L" / %d", pageCount);
     else {
         buf = str::Format(L" (%d / %d)", win->ctrl->CurrentPageNo(), pageCount);
-        ScopedMem<WCHAR> buf2(str::Format(L" (%d / %d)", pageCount, pageCount));
+        AutoFreeW buf2(str::Format(L" (%d / %d)", pageCount, pageCount));
         size2 = TextSizeInHwnd(win->hwndPageTotal, buf2);
     }
 

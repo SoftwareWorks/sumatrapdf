@@ -8,6 +8,21 @@ function files_in_dir(dir, files_in_dir)
   files(paths)
 end
 
+function makelzsa_files()
+  files_in_dir("src/utils", {
+    "BaseUtil.cpp",
+    "ByteOrderDecoder.cpp",
+    "StrUtil.cpp",
+    "FileUtil.cpp",
+    "CmdLineParser.cpp",
+    "LzmaSimpleArchive.cpp",
+  })
+
+  files {
+    "src/tools/MakeLzSA.cpp",
+  }
+end
+
 function zlib_files()
   files_in_dir("ext/zlib", {
     "adler32.c",
@@ -205,32 +220,9 @@ function jbig2dec_files()
 end
 
 function openjpeg_files()
-  files_in_dir( "ext/openjpeg", {
-    "bio.*",
-    "cidx_manager.*",
-    "cio.*",
-    "dwt.*",
-    "event.*",
-    "function_list.*",
-    "image.*",
-    "invert.*",
-    "j2k.*",
-    "jp2.*",
-    "mct.*",
-    "mqc.*",
-    "openjpeg.*",
-    "opj_clock.*",
-    "opj_config.h",
-    "phix_manager.*",
-    "pi.*",
-    "ppix_manager.",
-    "raw.*",
-    "t1.*",
-    "t2.*",
-    "tcd.*",
-    "tgt.*",
-    "thix_manager.*",
-    "tpix_manager.*",
+  files_in_dir( "ext2/openjpeg/src/lib/openjp2", {
+    "*.c",
+    "*.h",
   })
 end
 
@@ -384,6 +376,7 @@ function sumatra_files()
     "Caption.*",
     "Canvas.*",
     "ChmModel.*",
+    "Colors.*",
     "CrashHandler.*",
     "DisplayModel.*",
     "Doc.*",
@@ -416,6 +409,7 @@ function sumatra_files()
     "Tester.*",
     "TextSearch.*",
     "TextSelection.*",
+    "Theme.*",
     "Toolbar.*",
     "Translations.*",
     "Trans_sumatra_txt.cpp",
@@ -487,7 +481,7 @@ function utils_files()
     "FrameRateWnd.*",
     "LabelWithCloseWnd.*",
     "SplitterWnd.*",
-    "TabsWnd.*",
+    --"TabsCtrl.*",
     "Win32Window.*",
   })
 end
@@ -896,7 +890,38 @@ function uninstaller_files()
   files_in_dir("src", {
     "CrashHandler.*",
     "Translations.*",
-    "installer/Installer.*",
+    "installer/Installer.cpp",
+    "installer/Installer.h",
     "installer/Trans_installer_txt.cpp",
+  })
+end
+
+function test_app_files()
+  files_in_dir("tools/test-app", {
+    "resource.h",
+    "small.ico",
+    "targetver.h",
+    "test-app.cpp",
+    "test-app.h",
+    "test-app.ico",
+    "test-app.rc",
+    "TestDirectDraw.cpp",
+    "TestTab.cpp",
+  })
+
+  files_in_dir("src/utils", {
+    "BaseUtil.*",
+    "DebugLog.*",
+    "Dpi.*",
+    "FileUtil.*",
+    "Scoped.h",
+    "StrUtil.*",
+    "WinDynCalls.*",
+    "WinUtil.*",
+  })
+
+  files_in_dir("src/wingui", {
+    "TabsCtrl.*",
+    "Win32Window.*",
   })
 end

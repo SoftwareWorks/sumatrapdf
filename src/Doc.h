@@ -17,12 +17,11 @@ class EbookTocVisitor;
 class HtmlFormatter;
 class HtmlFormatterArgs;
 
-enum DocType { Doc_None, Doc_Epub, Doc_Fb2, Doc_Mobi, Doc_Pdb };
-enum DocError { Error_None, Error_Unknown };
+enum class DocType { None, Epub, Fb2, Mobi, Pdb };
+enum class DocError { None, Unknown };
 
-class Doc
-{
-protected:
+class Doc {
+  protected:
     DocType type;
 
     // If there was an error loading a file in CreateFromFile(),
@@ -34,54 +33,54 @@ protected:
 
     // A copy of the file path which is needed in case of an error (else
     // the file path is supposed to be stored inside the wrapped *Doc)
-    ScopedMem<WCHAR> filePath;
+    AutoFreeW filePath;
 
     union {
-        void *      generic;
-        EpubDoc *   epubDoc;
-        Fb2Doc *    fb2Doc;
-        MobiDoc *   mobiDoc;
-        PalmDoc *   palmDoc;
+        void* generic;
+        EpubDoc* epubDoc;
+        Fb2Doc* fb2Doc;
+        MobiDoc* mobiDoc;
+        PalmDoc* palmDoc;
     };
 
-    const WCHAR *GetFilePathFromDoc() const;
+    const WCHAR* GetFilePathFromDoc() const;
 
-public:
+  public:
     Doc(const Doc& other);
     Doc& operator=(const Doc& other);
     ~Doc();
 
     void Clear();
     Doc() { Clear(); }
-    explicit Doc(EpubDoc *doc);
-    explicit Doc(Fb2Doc *doc);
-    explicit Doc(MobiDoc *doc);
-    explicit Doc(PalmDoc *doc);
+    explicit Doc(EpubDoc* doc);
+    explicit Doc(Fb2Doc* doc);
+    explicit Doc(MobiDoc* doc);
+    explicit Doc(PalmDoc* doc);
 
     void Delete();
 
     // note: find a better name, if possible
-    bool IsNone() const { return Doc_None == type; }
+    bool IsNone() const { return DocType::None == type; }
     bool IsDocLoaded() const { return !IsNone(); }
     DocType Type() const { return type; }
 
     bool LoadingFailed() const {
-        CrashIf(error && !IsNone());
-        return error != Error_None;
+        CrashIf((error != DocError::None) && !IsNone());
+        return error != DocError::None;
     }
 
     // instead of adding these to Doc, they could also be part
     // of a virtual EbookDoc interface that *Doc implement
-    const WCHAR *GetFilePath() const;
-    const WCHAR *GetDefaultFileExt() const;
-    WCHAR *GetProperty(DocumentProperty prop) const;
-    const char *GetHtmlData(size_t &len) const;
+    const WCHAR* GetFilePath() const;
+    const WCHAR* GetDefaultFileExt() const;
+    WCHAR* GetProperty(DocumentProperty prop) const;
+    const char* GetHtmlData(size_t& len) const;
     size_t GetHtmlDataSize() const;
-    ImageData *GetCoverImage() const;
+    ImageData* GetCoverImage() const;
     bool HasToc() const;
-    bool ParseToc(EbookTocVisitor *visitor) const;
-    HtmlFormatter *CreateFormatter(HtmlFormatterArgs *args) const;
+    bool ParseToc(EbookTocVisitor* visitor) const;
+    HtmlFormatter* CreateFormatter(HtmlFormatterArgs* args) const;
 
-    static Doc CreateFromFile(const WCHAR *filePath);
-    static bool IsSupportedFile(const WCHAR *filePath, bool sniff=false);
+    static Doc CreateFromFile(const WCHAR* filePath);
+    static bool IsSupportedFile(const WCHAR* filePath, bool sniff = false);
 };

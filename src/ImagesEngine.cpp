@@ -39,7 +39,6 @@ public:
     ImagesEngine();
     virtual ~ImagesEngine();
 
-    const WCHAR *FileName() const override { return fileName; };
     int PageCount() const override { return (int)mediaboxes.Count(); }
 
     RectD PageMediabox(int pageNo) override;
@@ -52,7 +51,7 @@ public:
     RectD Transform(RectD rect, int pageNo, float zoom, int rotation, bool inverse=false) override;
 
     unsigned char *GetFileData(size_t *cbCount) override;
-    bool SaveFileAs(const WCHAR *copyFileName, bool includeUserAnnots=false) override;
+    bool SaveFileAs(const char *copyFileName, bool includeUserAnnots=false) override;
     WCHAR * ExtractPageText(int pageNo, const WCHAR *lineSep, RectI **coordsOut=nullptr,
                                     RenderTarget target=Target_View) override {
         UNUSED(pageNo); UNUSED(lineSep);
@@ -77,7 +76,6 @@ public:
     }
 
 protected:
-    WCHAR *fileName;
     ScopedComPtr<IStream> fileStream;
 
     CRITICAL_SECTION cacheAccess;
@@ -93,7 +91,7 @@ protected:
     void DropPage(ImagePage *page, bool forceRemove=false);
 };
 
-ImagesEngine::ImagesEngine() : fileName(nullptr)
+ImagesEngine::ImagesEngine()
 {
     InitializeCriticalSection(&cacheAccess);
 }
@@ -106,8 +104,6 @@ ImagesEngine::~ImagesEngine()
         DropPage(pageCache.Last(), true);
     }
     LeaveCriticalSection(&cacheAccess);
-
-    free(fileName);
 
     DeleteCriticalSection(&cacheAccess);
 }
@@ -249,24 +245,28 @@ unsigned char *ImagesEngine::GetFileData(size_t *cbCount)
         if (data)
             return (unsigned char *)data;
     }
-    if (fileName)
-        return (unsigned char *)file::ReadAll(fileName, cbCount);
+    if (FileName())
+        return (unsigned char *)file::ReadAll(FileName(), cbCount);
     return nullptr;
 }
 
-bool ImagesEngine::SaveFileAs(const WCHAR *copyFileName, bool includeUserAnnots)
+bool ImagesEngine::SaveFileAs(const char *copyFileName, bool includeUserAnnots)
 {
     UNUSED(includeUserAnnots);
-    if (fileName) {
-        BOOL ok = CopyFile(fileName, copyFileName, FALSE);
-        if (ok)
+    const WCHAR* srcPath = FileName();
+    AutoFreeW dstPath(str::conv::FromUtf8(copyFileName));
+    if (srcPath) {
+        BOOL ok = CopyFileW(srcPath, dstPath, FALSE);
+        if (ok) {
             return true;
+        }
     }
     size_t dataLen;
     ScopedMem<unsigned char> data(GetFileData(&dataLen));
-    if (data)
-        return file::WriteAll(copyFileName, data.Get(), dataLen);
-    return false;
+    if (!data) {
+        return false;
+    }
+    return file::WriteAll(dstPath, data.Get(), dataLen);
 }
 
 ImagePage *ImagesEngine::GetPage(int pageNo, bool tryOnly)
@@ -337,7 +337,7 @@ public:
     float GetFileDPI() const override { return image->GetHorizontalResolution(); }
     const WCHAR *GetDefaultFileExt() const override { return fileExt; }
 
-    bool SaveFileAsPDF(const WCHAR *pdfFileName, bool includeUserAnnots=false) override;
+    bool SaveFileAsPDF(const char *pdfFileName, bool includeUserAnnots=false) override;
 
     static BaseEngine *CreateFromFile(const WCHAR *fileName);
     static BaseEngine *CreateFromStream(IStream *stream);
@@ -361,7 +361,7 @@ BaseEngine *ImageEngineImpl::Clone()
         return nullptr;
 
     ImageEngineImpl *clone = new ImageEngineImpl();
-    clone->fileName = str::Dup(fileName);
+    clone->SetFileName(FileName());
     clone->fileExt = fileExt;
     if (fileStream)
         fileStream->Clone(&clone->fileStream);
@@ -375,10 +375,10 @@ bool ImageEngineImpl::LoadSingleFile(const WCHAR *file)
 {
     if (!file)
         return false;
-    fileName = str::Dup(file);
+    SetFileName(file);
 
     size_t len;
-    ScopedMem<char> data(file::ReadAll(file, &len));
+    AutoFree data(file::ReadAll(file, &len));
     fileExt = GfxFileExtFromData(data, len);
 
     image = BitmapFromData(data, len);
@@ -399,7 +399,7 @@ bool ImageEngineImpl::LoadFromStream(IStream *stream)
         return false;
 
     size_t len;
-    ScopedMem<char> data((char *)GetDataFromStream(stream, &len));
+    AutoFree data((char *)GetDataFromStream(stream, &len));
     if (IsGdiPlusNativeFormat(data, len))
         image = Bitmap::FromStream(stream);
     else
@@ -525,19 +525,18 @@ RectD ImageEngineImpl::LoadMediabox(int pageNo)
     return mbox;
 }
 
-bool ImageEngineImpl::SaveFileAsPDF(const WCHAR *pdfFileName, bool includeUserAnnots)
+bool ImageEngineImpl::SaveFileAsPDF(const char *pdfFileName, bool includeUserAnnots)
 {
     UNUSED(includeUserAnnots);
     bool ok = true;
     PdfCreator *c = new PdfCreator();
-    if (fileName) {
+    if (FileName()) {
         size_t len;
-        ScopedMem<char> data(file::ReadAll(fileName, &len));
+        AutoFree data(file::ReadAll(FileName(), &len));
         ok = data && c->AddImagePage(data, len, GetFileDPI());
-    }
-    else {
+    } else {
         size_t len;
-        ScopedMem<char> data((char *)GetDataFromStream(fileStream, &len));
+        AutoFree data((char *)GetDataFromStream(fileStream, &len));
         ok = data && c->AddImagePage(data, len, GetFileDPI());
     }
     for (int i = 2; i <= PageCount() && ok; i++) {
@@ -615,11 +614,14 @@ public:
     ImageDirEngineImpl() : fileDPI(96.0f) { }
 
     BaseEngine *Clone() override {
-        return fileName ? CreateFromFile(fileName) : nullptr;
+        if (FileName()) {
+            return CreateFromFile(FileName());
+        }
+        return nullptr;
     }
 
     unsigned char *GetFileData(size_t *cbCountOut) override { UNUSED(cbCountOut);  return nullptr; }
-    bool SaveFileAs(const WCHAR *copyFileName, bool includeUserAnnots=false) override;
+    bool SaveFileAs(const char *copyFileName, bool includeUserAnnots=false) override;
 
     WCHAR *GetProperty(DocumentProperty prop) override { UNUSED(prop); return nullptr; }
 
@@ -635,7 +637,7 @@ public:
     float GetFileDPI() const override { return fileDPI; }
     const WCHAR *GetDefaultFileExt() const override { return L""; }
 
-    bool SaveFileAsPDF(const WCHAR *pdfFileName, bool includeUserAnnots=false) override;
+    bool SaveFileAsPDF(const char *pdfFileName, bool includeUserAnnots=false) override;
 
     static BaseEngine *CreateFromFile(const WCHAR *fileName);
 
@@ -651,9 +653,9 @@ protected:
 
 bool ImageDirEngineImpl::LoadImageDir(const WCHAR *dirName)
 {
-    fileName = str::Dup(dirName);
+    SetFileName(dirName);
 
-    ScopedMem<WCHAR> pattern(path::Join(dirName, L"*"));
+    AutoFreeW pattern(path::Join(dirName, L"*"));
 
     WIN32_FIND_DATA fdata;
     HANDLE hfind = FindFirstFile(pattern, &fdata);
@@ -724,17 +726,19 @@ DocTocItem *ImageDirEngineImpl::GetTocTree()
     return root;
 }
 
-bool ImageDirEngineImpl::SaveFileAs(const WCHAR *copyFileName, bool includeUserAnnots)
+bool ImageDirEngineImpl::SaveFileAs(const char *copyFileName, bool includeUserAnnots)
 {
     UNUSED(includeUserAnnots);
     // only copy the files if the target directory doesn't exist yet
-    if (!CreateDirectory(copyFileName, nullptr))
+    AutoFreeW dstPath(str::conv::FromUtf8(copyFileName));
+    if (!CreateDirectoryW(dstPath, nullptr)) {
         return false;
+    }
     bool ok = true;
     for (size_t i = 0; i < pageFileNames.Count(); i++) {
         const WCHAR *filePathOld = pageFileNames.At(i);
-        ScopedMem<WCHAR> filePathNew(path::Join(copyFileName, path::GetBaseName(filePathOld)));
-        ok = ok && CopyFile(filePathOld, filePathNew, TRUE);
+        AutoFreeW filePathNew(path::Join(dstPath, path::GetBaseName(filePathOld)));
+        ok = ok && CopyFileW(filePathOld, filePathNew, TRUE);
     }
     return ok;
 }
@@ -742,7 +746,7 @@ bool ImageDirEngineImpl::SaveFileAs(const WCHAR *copyFileName, bool includeUserA
 Bitmap *ImageDirEngineImpl::LoadBitmap(int pageNo, bool& deleteAfterUse)
 {
     size_t len;
-    ScopedMem<char> bmpData(file::ReadAll(pageFileNames.At(pageNo - 1), &len));
+    AutoFree bmpData(file::ReadAll(pageFileNames.At(pageNo - 1), &len));
     if (bmpData) {
         deleteAfterUse = true;
         return BitmapFromData(bmpData, len);
@@ -753,7 +757,7 @@ Bitmap *ImageDirEngineImpl::LoadBitmap(int pageNo, bool& deleteAfterUse)
 RectD ImageDirEngineImpl::LoadMediabox(int pageNo)
 {
     size_t len;
-    ScopedMem<char> bmpData(file::ReadAll(pageFileNames.At(pageNo - 1), &len));
+    AutoFree bmpData(file::ReadAll(pageFileNames.At(pageNo - 1), &len));
     if (bmpData) {
         Size size = BitmapSizeFromData(bmpData, len);
         return RectD(0, 0, size.Width, size.Height);
@@ -761,14 +765,14 @@ RectD ImageDirEngineImpl::LoadMediabox(int pageNo)
     return RectD();
 }
 
-bool ImageDirEngineImpl::SaveFileAsPDF(const WCHAR *pdfFileName, bool includeUserAnnots)
+bool ImageDirEngineImpl::SaveFileAsPDF(const char *pdfFileName, bool includeUserAnnots)
 {
     UNUSED(includeUserAnnots);
     bool ok = true;
     PdfCreator *c = new PdfCreator();
     for (int i = 1; i <= PageCount() && ok; i++) {
         size_t len;
-        ScopedMem<char> data(file::ReadAll(pageFileNames.At(i - 1), &len));
+        AutoFree data(file::ReadAll(pageFileNames.At(i - 1), &len));
         ok = data && c->AddImagePage(data, len, GetFileDPI());
     }
     ok = ok && c->SaveToFile(pdfFileName);
@@ -819,12 +823,12 @@ public:
             if (SUCCEEDED(res))
                 return CreateFromStream(stm);
         }
-        if (fileName)
-            return CreateFromFile(fileName);
+        if (FileName())
+            return CreateFromFile(FileName());
         return nullptr;
     }
 
-    bool SaveFileAsPDF(const WCHAR *pdfFileName, bool includeUserAnnots=false) override;
+    bool SaveFileAsPDF(const char *pdfFileName, bool includeUserAnnots=false) override;
 
     WCHAR *GetProperty(DocumentProperty prop) override;
 
@@ -857,21 +861,21 @@ protected:
     Vec<size_t> fileIdxs;
 
     // extracted metadata
-    ScopedMem<WCHAR> propTitle;
+    AutoFreeW propTitle;
     WStrVec propAuthors;
-    ScopedMem<WCHAR> propDate;
-    ScopedMem<WCHAR> propModDate;
-    ScopedMem<WCHAR> propCreator;
-    ScopedMem<WCHAR> propSummary;
+    AutoFreeW propDate;
+    AutoFreeW propModDate;
+    AutoFreeW propCreator;
+    AutoFreeW propSummary;
     // temporary state needed for extracting metadata
-    ScopedMem<WCHAR> propAuthorTmp;
+    AutoFreeW propAuthorTmp;
 };
 
 bool CbxEngineImpl::LoadFromFile(const WCHAR *file)
 {
     if (!file)
         return false;
-    fileName = str::Dup(file);
+    SetFileName(file);
 
     return FinishLoading();
 }
@@ -918,7 +922,7 @@ bool CbxEngineImpl::FinishLoading()
     }
     AssertCrash(allFileNames.Count() == cbxFile->GetFileCount());
 
-    ScopedMem<char> metadata(cbxFile->GetFileDataByName(L"ComicInfo.xml"));
+    AutoFree metadata(cbxFile->GetFileDataByName(L"ComicInfo.xml"));
     if (metadata)
         ParseComicInfoXml(metadata);
     metadata.Set(cbxFile->GetComment());
@@ -964,34 +968,34 @@ void CbxEngineImpl::ParseComicInfoXml(const char *xmlData)
         if (!tok->IsStartTag())
             continue;
         if (tok->NameIs("Title")) {
-            ScopedMem<char> value(GetTextContent(parser));
+            AutoFree value(GetTextContent(parser));
             if (value)
                 Visit("/ComicBookInfo/1.0/title", value, json::Type_String);
         }
         else if (tok->NameIs("Year")) {
-            ScopedMem<char> value(GetTextContent(parser));
+            AutoFree value(GetTextContent(parser));
             if (value)
                 Visit("/ComicBookInfo/1.0/publicationYear", value, json::Type_Number);
         }
         else if (tok->NameIs("Month")) {
-            ScopedMem<char> value(GetTextContent(parser));
+            AutoFree value(GetTextContent(parser));
             if (value)
                 Visit("/ComicBookInfo/1.0/publicationMonth", value, json::Type_Number);
         }
         else if (tok->NameIs("Summary")) {
-            ScopedMem<char> value(GetTextContent(parser));
+            AutoFree value(GetTextContent(parser));
             if (value)
                 Visit("/X-summary", value, json::Type_String);
         }
         else if (tok->NameIs("Writer")) {
-            ScopedMem<char> value(GetTextContent(parser));
+            AutoFree value(GetTextContent(parser));
             if (value) {
                 Visit("/ComicBookInfo/1.0/credits[0]/person", value, json::Type_String);
                 Visit("/ComicBookInfo/1.0/credits[0]/primary", "true", json::Type_Bool);
             }
         }
         else if (tok->NameIs("Penciller")) {
-            ScopedMem<char> value(GetTextContent(parser));
+            AutoFree value(GetTextContent(parser));
             if (value) {
                 Visit("/ComicBookInfo/1.0/credits[1]/person", value, json::Type_String);
                 Visit("/ComicBookInfo/1.0/credits[1]/primary", "true", json::Type_Bool);
@@ -1034,14 +1038,14 @@ bool CbxEngineImpl::Visit(const char *path, const char *value, json::DataType ty
            !propDate || str::FindChar(propDate, '/') <= propDate;
 }
 
-bool CbxEngineImpl::SaveFileAsPDF(const WCHAR *pdfFileName, bool includeUserAnnots)
+bool CbxEngineImpl::SaveFileAsPDF(const char *pdfFileName, bool includeUserAnnots)
 {
     UNUSED(includeUserAnnots);
     bool ok = true;
     PdfCreator *c = new PdfCreator();
     for (int i = 1; i <= PageCount() && ok; i++) {
         size_t len;
-        ScopedMem<char> data(GetImageData(i, len));
+        AutoFree data(GetImageData(i, len));
         ok = data && c->AddImagePage(data, len, GetFileDPI());
     }
     if (ok) {
@@ -1087,7 +1091,7 @@ const WCHAR *CbxEngineImpl::GetDefaultFileExt() const
 Bitmap *CbxEngineImpl::LoadBitmap(int pageNo, bool& deleteAfterUse)
 {
     size_t len;
-    ScopedMem<char> bmpData(GetImageData(pageNo, len));
+    AutoFree bmpData(GetImageData(pageNo, len));
     if (bmpData) {
         deleteAfterUse = true;
         return BitmapFromData(bmpData, len);
@@ -1106,7 +1110,7 @@ RectD CbxEngineImpl::LoadMediabox(int pageNo)
     }
 
     size_t len;
-    ScopedMem<char> bmpData(GetImageData(pageNo, len));
+    AutoFree bmpData(GetImageData(pageNo, len));
     if (bmpData) {
         Size size = BitmapSizeFromData(bmpData, len);
         return RectD(0, 0, size.Width, size.Height);

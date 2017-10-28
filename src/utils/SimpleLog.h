@@ -12,7 +12,7 @@ public:
     {
         va_list args;
         va_start(args, fmt);
-        ScopedMem<WCHAR> s(str::FmtV(fmt, args));
+        AutoFreeW s(str::FmtV(fmt, args));
         Log(s);
         va_end(args);
     }
@@ -35,7 +35,7 @@ public:
 
     virtual void Log(const WCHAR *s)
     {
-        ScopedMem<char> utf8s(str::conv::ToUtf8(s));
+        AutoFree utf8s(str::conv::ToUtf8(s));
         if (utf8s && INVALID_HANDLE_VALUE != fh) {
             DWORD len;
             BOOL ok = WriteFile(fh, utf8s.Get(), (DWORD)str::Len(utf8s), &len, nullptr);
@@ -68,7 +68,7 @@ public:
     {
         if (s) {
             // DbgView displays one line per OutputDebugString call
-            OutputDebugString(ScopedMem<WCHAR>(str::Format(L"%s\n", s)));
+            OutputDebugString(AutoFreeW(str::Format(L"%s\n", s)));
         }
     }
 };

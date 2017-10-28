@@ -75,7 +75,7 @@ char *ArchFile::GetFileDataByIdx(size_t fileindex, size_t *len)
     size_t size = ar_entry_get_size(ar);
     if (size > SIZE_MAX - 3)
         return nullptr;
-    ScopedMem<char> data((char *)malloc(size + 3));
+    AutoFree data((char *)malloc(size + 3));
     if (!data)
         return nullptr;
     if (!ar_entry_uncompress(ar, data, size))
@@ -110,7 +110,7 @@ char *ArchFile::GetComment(size_t *len)
     size_t commentLen = ar_get_global_comment(ar, nullptr, 0);
     if (0 == commentLen || (size_t)-1 == commentLen)
         return nullptr;
-    ScopedMem<char> comment((char *)malloc(commentLen + 1));
+    AutoFree comment((char *)malloc(commentLen + 1));
     if (!comment)
         return nullptr;
     size_t read = ar_get_global_comment(ar, comment, commentLen);
@@ -258,9 +258,9 @@ static RARGetDllVersionProc RARGetDllVersion = nullptr;
 UnRarDll::UnRarDll()
 {
     if (!RARGetDllVersion) {
-        ScopedMem<WCHAR> dllPath(path::GetAppPath(L"unrar.dll"));
+        AutoFreeW dllPath(path::GetAppPath(L"unrar.dll"));
 #ifdef _WIN64
-        ScopedMem<WCHAR> dll64Path(path::GetAppPath(L"unrar64.dll"));
+        AutoFreeW dll64Path(path::GetAppPath(L"unrar64.dll"));
         if (file::Exists(dll64Path))
             dllPath.Set(dll64Path.StealData());
 #endif

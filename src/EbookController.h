@@ -1,58 +1,68 @@
 /* Copyright 2015 the SumatraPDF project authors (see AUTHORS file).
    License: GPLv3 */
 
-struct  DrawInstr;
-struct  EbookControls;
-struct  EbookFormattingData;
-struct  FrameRateWnd;
+struct DrawInstr;
+struct EbookControls;
+struct EbookFormattingData;
+struct FrameRateWnd;
 
-class   EbookController;
-class   EbookFormattingThread;
-class   HtmlFormatter;
-class   HtmlFormatterArgs;
-class   HtmlPage;
+class EbookController;
+class EbookFormattingThread;
+class HtmlFormatter;
+class HtmlFormatterArgs;
+class HtmlPage;
 
-namespace mui { class Control; }
+namespace mui {
+class Control;
+}
 using namespace mui;
 
-class EbookController : public Controller
-{
-public:
-    EbookController(Doc doc, EbookControls *ctrls, ControllerCallback *cb);
-    virtual ~EbookController();
+class EbookController : public Controller {
+  public:
+    EbookController(Doc doc, EbookControls* ctrls, ControllerCallback* cb);
+    ~EbookController() override;
 
-    virtual const WCHAR *FilePath() const { return doc.GetFilePath(); }
-    virtual const WCHAR *DefaultFileExt() const { return doc.GetDefaultFileExt(); }
-    virtual int PageCount() const { return GetMaxPageCount(); }
-    virtual WCHAR *GetProperty(DocumentProperty prop) { return doc.GetProperty(prop); }
+    const WCHAR* FilePath() const override { return doc.GetFilePath(); }
+    const WCHAR* DefaultFileExt() const override { return doc.GetDefaultFileExt(); }
+    int PageCount() const override { return GetMaxPageCount(); }
+    WCHAR* GetProperty(DocumentProperty prop) override { return doc.GetProperty(prop); }
 
-    virtual int CurrentPageNo() const { return currPageNo; }
-    virtual void GoToPage(int pageNo, bool addNavPoint);
-    virtual bool CanNavigate(int dir) const;
-    virtual void Navigate(int dir);
+    int CurrentPageNo() const override { return currPageNo; }
+    void GoToPage(int pageNo, bool addNavPoint) override;
+    bool CanNavigate(int dir) const override;
+    void Navigate(int dir) override;
 
-    virtual void SetDisplayMode(DisplayMode mode, bool keepContinuous=false);
-    virtual DisplayMode GetDisplayMode() const { return IsDoublePage() ? DM_FACING : DM_SINGLE_PAGE; }
-    virtual void SetPresentationMode(bool enable) { UNUSED(enable); /* not supported */ }
-    virtual void SetZoomVirtual(float zoom, PointI *fixPt = nullptr) { UNUSED(zoom); UNUSED(fixPt); /* not supported */ }
-    virtual float GetZoomVirtual(bool absolute = false) const { UNUSED(absolute);  return 100; }
-    virtual float GetNextZoomStep(float towards) const { UNUSED(towards);  return 100; }
-    virtual void SetViewPortSize(SizeI size);
+    void SetDisplayMode(DisplayMode mode, bool keepContinuous = false) override;
+    DisplayMode GetDisplayMode() const override { return IsDoublePage() ? DM_FACING : DM_SINGLE_PAGE; }
+    void SetPresentationMode(bool enable) override { UNUSED(enable); /* not supported */ }
+    void SetZoomVirtual(float zoom, PointI* fixPt) override {
+        UNUSED(zoom);
+        UNUSED(fixPt); /* not supported */
+    }
+    float GetZoomVirtual(bool absolute = false) const override {
+        UNUSED(absolute);
+        return 100;
+    }
+    float GetNextZoomStep(float towards) const override {
+        UNUSED(towards);
+        return 100;
+    }
+    void SetViewPortSize(SizeI size) override;
 
-    virtual bool HasTocTree() const { return doc.HasToc(); }
-    virtual DocTocItem *GetTocTree();
-    virtual void ScrollToLink(PageDestination *dest);
-    virtual PageDestination *GetNamedDest(const WCHAR *name);
+    bool HasTocTree() const override { return doc.HasToc(); }
+    DocTocItem* GetTocTree() override;
+    void ScrollToLink(PageDestination* dest) override;
+    PageDestination* GetNamedDest(const WCHAR* name) override;
 
-    virtual void UpdateDisplayState(DisplayState *ds);
-    virtual void CreateThumbnail(SizeI size, const std::function<void(RenderedBitmap*)>&);
+    void UpdateDisplayState(DisplayState* ds) override;
+    void CreateThumbnail(SizeI size, const onBitmapRenderedCb&) override;
 
-    virtual bool GoToNextPage();
-    virtual bool GoToPrevPage(bool toBottom=false);
+    bool GoToNextPage() override;
+    bool GoToPrevPage(bool toBottom = false) override;
 
-    virtual EbookController *AsEbook() { return this; }
+    EbookController* AsEbook() override { return this; }
 
-public:
+  public:
     // the following is specific to EbookController
 
     DocType GetDocType() const { return doc.Type(); }
@@ -60,72 +70,71 @@ public:
     void EnableMessageHandling(bool enable) { handleMsgs = enable; }
     void UpdateDocumentColors();
     void RequestRepaint();
-    void HandlePagesFromEbookLayout(EbookFormattingData *ebookLayout);
+    void HandlePagesFromEbookLayout(EbookFormattingData* ebookLayout);
     void TriggerLayout();
-    void StartLayouting(int startReparseIdxArg=-1, DisplayMode displayMode=DM_AUTOMATIC);
-    int  ResolvePageAnchor(const WCHAR *id);
+    void StartLayouting(int startReparseIdxArg = -1, DisplayMode displayMode = DM_AUTOMATIC);
+    int ResolvePageAnchor(const WCHAR* id);
     void CopyNavHistory(EbookController& orig);
-    int  CurrentTocPageNo() const;
+    int CurrentTocPageNo() const;
 
     // call StartLayouting before using this EbookController
-    static EbookController *Create(Doc doc, HWND hwnd, ControllerCallback *cb, FrameRateWnd *);
+    static EbookController* Create(Doc doc, HWND hwnd, ControllerCallback* cb, FrameRateWnd*);
 
-    static void DeleteEbookFormattingData(EbookFormattingData *data);
+    static void DeleteEbookFormattingData(EbookFormattingData* data);
 
-protected:
+  protected:
+    EbookControls* ctrls = nullptr;
 
-    EbookControls * ctrls;
-
-    Doc             doc;
+    Doc doc;
 
     // TODO: this should be recycled along with pages so that its
     // memory use doesn't grow without bounds
-    PoolAllocator   textAllocator;
+    PoolAllocator textAllocator;
 
-    Vec<HtmlPage*> *    pages;
+    Vec<HtmlPage*>* pages = nullptr;
 
     // pages being sent from background formatting thread
-    Vec<HtmlPage*> *    incomingPages;
+    Vec<HtmlPage*>* incomingPages = nullptr;
 
     // currPageNo is in range 1..$numberOfPages.
-    int             currPageNo;
+    int currPageNo = 0;
     // reparseIdx of the current page (the first one if we're showing 2)
-    int             currPageReparseIdx;
+    int currPageReparseIdx = 0;
 
     // size of the page for which pages were generated
-    SizeI           pageSize;
+    SizeI pageSize;
 
-    EbookFormattingThread * formattingThread;
-    int                     formattingThreadNo;
+    EbookFormattingThread* formattingThread = nullptr;
+    int formattingThreadNo = -1;
 
     // whether HandleMessage passes messages on to ctrls->mainWnd
-    bool            handleMsgs;
+    bool handleMsgs = false;
 
     // parallel lists mapping anchor IDs to reparseIdxs
-    WStrVec *   pageAnchorIds;
-    Vec<int> *  pageAnchorIdxs;
+    WStrVec* pageAnchorIds = nullptr;
+    Vec<int>* pageAnchorIdxs = nullptr;
 
-    Vec<int>    navHistory;
-    size_t      navHistoryIx;
+    Vec<int> navHistory;
+    size_t navHistoryIdx = 0;
 
-    Vec<HtmlPage*> *GetPages();
-    void        UpdateStatus();
-    bool        FormattingInProgress() const { return formattingThread != nullptr; }
-    void        StopFormattingThread();
-    void        CloseCurrentDocument();
-    int         GetMaxPageCount() const;
-    bool        IsDoublePage() const;
-    void        ExtractPageAnchors();
-    void        AddNavPoint();
-    void        OnClickedLink(int pageNo, DrawInstr *link);
+    Vec<HtmlPage*>* GetPages();
+    void UpdateStatus();
+    bool FormattingInProgress() const { return formattingThread != nullptr; }
+    void StopFormattingThread();
+    void CloseCurrentDocument();
+    int GetMaxPageCount() const;
+    bool IsDoublePage() const;
+    void ExtractPageAnchors();
+    void AddNavPoint();
+    void OnClickedLink(int pageNo, DrawInstr* link);
 
     // event handlers
-    void        ClickedNext(Control *c, int x, int y);
-    void        ClickedPrev(Control *c, int x, int y);
-    void        ClickedProgress(Control *c, int x, int y);
-    void        SizeChangedPage(Control *c, int dx, int dy);
-    void        ClickedPage1(Control *c, int x, int y);
-    void        ClickedPage2(Control *c, int x, int y);
+    void ClickedNext(Control* c, int x, int y);
+    void ClickedPrev(Control* c, int x, int y);
+    void ClickedProgress(Control* c, int x, int y);
+    void SizeChangedPage(Control* c, int dx, int dy);
+    void ClickedPage1(Control* c, int x, int y);
+    void ClickedPage2(Control* c, int x, int y);
 };
 
-HtmlFormatterArgs *CreateFormatterArgsDoc(Doc doc, int dx, int dy, Allocator *textAllocator=nullptr);
+HtmlFormatterArgs* CreateFormatterArgsDoc(Doc doc, int dx, int dy, Allocator* textAllocator = nullptr);

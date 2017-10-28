@@ -1,7 +1,9 @@
 --[[
-To generate Visual Studio files in vs2015 directory, run: premake5 vs2015
+To generate Visual Studio files in vs2015 directory, run:
+premake5 vs2015 : for Visual Studio 2015 files in vs2015 directory
+premake5 vs2017 : for Visual Studio 2017 files in vs2017 directory
 
-I'm using premake5 alpha9 from http://premake.github.io/download.html#v5
+I'm using premake5 alpha12 from http://premake.github.io/download.html#v5
 (premake4 won't work, it doesn't support VS 2013+)
 
 Note about nasm: when providing "-I foo/bar/" flag to nasm.exe, it must be
@@ -18,7 +20,8 @@ Reference for warnings:
  4206 - non-standard extension: translation unit is empty
  4244 - 64bit, conversion with possible loss of data
  4267 - 64bit, conversion with possible loss of data
- 4302 - 64bit, type caset truncation
+ 4302 - 64bit, type cast truncation
+ 4310 - 64bit, cast truncates constant value
  4311 - 64bit, type cast pointer truncation
  4312 - 64bit, conversion to X of greater size
  4324 - 64bit, structure was padded
@@ -42,12 +45,14 @@ include("premake5.files.lua")
 workspace "SumatraPDF"
   configurations { "Debug", "Release", "ReleasePrefast" }
   platforms { "x32", "x64" }
-  startproject "SumatraPDF"
+  startproject "SumatraPDF-no-MUPDF"
 
   filter "platforms:x32"
      architecture "x86"
      toolset "v140_xp"
      buildoptions { "/arch:IA32" } -- disable the default /arch:SSE2 for 32-bit builds
+     filter "action:vs2017"
+      toolset "v141_xp"
      filter "action:vs2013"
       toolset "v120_xp"
   filter {}
@@ -55,6 +60,8 @@ workspace "SumatraPDF"
   filter "platforms:x64"
      architecture "x86_64"
      toolset "v140_xp"
+     filter "action:vs2017"
+      toolset "v141_xp"
      filter "action:vs2013"
       toolset "v120_xp"
   filter {}
@@ -70,6 +77,10 @@ workspace "SumatraPDF"
 
   filter "action:vs2013"
     location "vs2013"
+  filter {}
+
+  filter "action:vs2017"
+    location "vs2017"
   filter {}
 
   filter "action:gmake"
@@ -92,11 +103,12 @@ workspace "SumatraPDF"
   filter {}
   objdir "%{cfg.targetdir}/obj"
 
+  symbols "On"
+
   -- https://github.com/premake/premake-core/wiki/flags
   flags {
     "MultiProcessorCompile",
     "StaticRuntime",
-    "Symbols",
     -- "Unicode", TODO: breaks libdjuv?
   }
 
@@ -108,7 +120,6 @@ workspace "SumatraPDF"
   rtti "Off"
 
   defines { "WIN32", "_WIN32", "_CRT_SECURE_NO_WARNINGS", "WINVER=0x0501", "_WIN32_WINNT=0x0501" }
-  defines { "_HAS_EXCEPTIONS=0" }
 
   filter "configurations:Debug"
     defines { "DEBUG" }
@@ -142,7 +153,7 @@ workspace "SumatraPDF"
     language "C++"
     -- TODO: try /D USE_EXCEPTION_EMULATION to see if it reduces the size
     -- and disables the exceptions warnings
-    defines { "NEED_JPEG_DECODER", "THREADMODEL=0", "DDJVUAPI=/**/",  "MINILISPAPI=/**/", "DO_CHANGELOCALE=0" }
+    defines { "NEED_JPEG_DECODER", "THREADMODEL=0", "DDJVUAPI=/**/",  "MINILISPAPI=/**/", "DO_CHANGELOCALE=0", "DEBUGLVL=0" }
     disablewarnings { "4100", "4189", "4244", "4267", "4302", "4311", "4312" }
     disablewarnings { "4456", "4457", "4459", "4530", "4611", "4701", "4702", "4703", "4706" }
     includedirs { "ext/libjpeg-turbo" }
@@ -173,8 +184,14 @@ workspace "SumatraPDF"
   project "openjpeg"
     kind "StaticLib"
     language "C"
-    disablewarnings { "4100", "4244", "4819" }
-    includedirs { "ext/openjpeg" }
+    disablewarnings { "4100", "4244", "4310", "4819" }
+
+    -- openjpeg has opj_config_private.h for such over-rides
+    -- but we can't change it because we bring openjpeg as submodule
+    -- and we can't provide our own in a different directory because
+    -- msvc will include the one in ext2/openjpeg/src/lib/openjp2 first
+    -- because #include "opj_config_private.h" searches current directory first
+    defines { "USE_JPIP", "OPJ_STATIC", "OPJ_EXPORTS" }
     openjpeg_files()
 
 
@@ -235,6 +252,7 @@ workspace "SumatraPDF"
   project "engines"
     kind "StaticLib"
     language "C++"
+    cppdialect "C++17"
     disablewarnings { "4018", "4057", "4189", "4244", "4267", "4295", "4819" }
     disablewarnings { "4701", "4706", "4838"  }
     includedirs { "src/utils", "src/wingui", "src/mui" }
@@ -246,12 +264,21 @@ workspace "SumatraPDF"
   project "mupdf"
     kind "StaticLib"
     language "C"
+
+    -- for openjpeg, OPJ_STATIC is alrady defined in load-jpx.c
+    -- so we can't double-define it
+    defines { "USE_JPIP", "OPJ_EXPORTS" }
+
     defines { "NOCJKFONT", "SHARE_JPEG" }
     disablewarnings {  "4244", "4267", }
+    -- force including mupdf/scripts/openjpeg/opj_config_private.h
+    -- with our build over-rides
+    includedirs { "mupdf/scripts/openjpeg" }
+
     includedirs {
       "mupdf/include", "mupdf/generated", "ext/zlib",
       "ext/freetype2/config", "ext/freetype2/include",
-      "ext/jbig2dec", "ext/libjpeg-turbo", "ext/openjpeg"
+      "ext/jbig2dec", "ext/libjpeg-turbo", "ext2/openjpeg/src/lib/openjp2"
     }
     -- .\ext\..\bin\nasm.exe -I .\mupdf\ -f win32 -o .\obj-rel\mupdf\font_base14.obj
     -- .\mupdf\font_base14.asm
@@ -306,6 +333,7 @@ workspace "SumatraPDF"
   project "utils"
     kind "StaticLib"
     language "C++"
+    cppdialect "C++17"
     -- QITABENT in shlwapi.h has incorrect definition and causes 4838
     disablewarnings { "4838" }
     includedirs { "src/utils", "src/wingui", "src/mui", "ext/zlib", "ext/lzma/C" }
@@ -316,6 +344,7 @@ workspace "SumatraPDF"
   project "mui"
     kind "StaticLib"
     language "C++"
+    cppdialect "C++17"
     includedirs { "src/utils", "src/wingui", "src/mui" }
     mui_files()
 
@@ -323,6 +352,7 @@ workspace "SumatraPDF"
   project "uia"
     kind "StaticLib"
     language "C++"
+    cppdialect "C++17"
     disablewarnings { "4302", "4311", "4838" }
     includedirs { "src", "src/utils" }
     uia_files()
@@ -331,6 +361,7 @@ workspace "SumatraPDF"
   project "sumatra"
     kind "StaticLib"
     language "C++"
+    cppdialect "C++17"
     -- TODO: 4838 only in settingsstructs.h(642)
     disablewarnings { "4838" }
     includedirs { "src", "src/utils", "src/wingui", "src/mui", "ext/synctex" }
@@ -341,6 +372,7 @@ workspace "SumatraPDF"
   project "efi"
     kind "ConsoleApp"
     language "C++"
+    cppdialect "C++17"
     disablewarnings { "4091", "4577" }
     includedirs { "src/utils" }
     efi_files()
@@ -396,6 +428,7 @@ workspace "SumatraPDF"
   project "enginedump"
     kind "ConsoleApp"
     language "C++"
+    cppdialect "C++17"
     includedirs { "src", "src/utils", "src/mui", "mupdf/include" }
     engine_dump_files()
     links { "engines", "utils", "mupdf", "unarrlib", "libwebp", "libdjvu" }
@@ -416,6 +449,7 @@ workspace "SumatraPDF"
   project "test_util"
     kind "ConsoleApp"
     language "C++"
+    cppdialect "C++17"
     disablewarnings { "4838" }
     defines { "NO_LIBMUPDF" }
     includedirs { "src/utils" }
@@ -435,7 +469,8 @@ workspace "SumatraPDF"
   project "plugin-test"
     kind "WindowedApp"
     language "C++"
-    flags { "WinMain" }
+    cppdialect "C++17"
+    entrypoint "WinMainCRTStartup"
     includedirs { "src/utils" }
     files { "src/tools/plugin-test.cpp" }
     links { "utils", "mupdf" }
@@ -445,15 +480,17 @@ workspace "SumatraPDF"
   project "MakeLZSA"
     kind "ConsoleApp"
     language "C++"
-    files { "src/tools/MakeLzSA.cpp" }
+    cppdialect "C++17"
+    makelzsa_files()
     includedirs { "src/utils", "ext/zlib", "ext/lzma/C", "ext/unarr" }
-    links { "unarrlib", "utils", "zlib" }
+    links { "unarrlib", "zlib" }
     links { "shlwapi" }
 
 
   project "PdfFilter"
     kind "SharedLib"
     language "C++"
+    cppdialect "C++17"
     disablewarnings { "4838" }
     filter {"configurations:Debug"}
       defines { "BUILD_TEX_IFILTER", "BUILD_EPUB_IFILTER" }
@@ -467,6 +504,7 @@ workspace "SumatraPDF"
   project "PdfPreview"
     kind "SharedLib"
     language "C++"
+    cppdialect "C++17"
     disablewarnings { "4838" }
     includedirs {
       "src", "src/utils", "src/wingui", "src/mui", "mupdf/include",
@@ -490,7 +528,9 @@ workspace "SumatraPDF"
   project "SumatraPDF"
     kind "WindowedApp"
     language "C++"
-    flags { "NoManifest", "WinMain" }
+    cppdialect "C++17"
+    entrypoint "WinMainCRTStartup"
+    flags { "NoManifest" }
     includedirs { "src", "src/utils", "src/wingui", "src/mui" }
     sumatrapdf_files()
     files {
@@ -502,15 +542,19 @@ workspace "SumatraPDF"
       "uia", "unarrlib", "utils"
     }
     links {
-      "comctl32", "gdiplus", "msimg32", "shlwapi", "urlmon",
+      "comctl32", "delayimp", "gdiplus", "msimg32", "shlwapi", "urlmon",
       "version", "windowscodecs", "wininet"
     }
+    -- this is to prevent dll hijacking
+    linkoptions { "/DELAYLOAD:comctl32.dll /DELAYLOAD:gdiplus.dll /DELAYLOAD:msimg32.dll /DELAYLOAD:shlwapi.dll /DELAYLOAD:urlmon.dll /DELAYLOAD:version.dll /DELAYLOAD:wininet.dll"}
 
 
   project "SumatraPDF-no-MUPDF"
     kind "WindowedApp"
     language "C++"
-    flags { "NoManifest", "WinMain" }
+    cppdialect "C++17"
+    entrypoint "WinMainCRTStartup"
+    flags { "NoManifest" }
     includedirs { "src", "src/utils", "src/wingui", "src/mui", "mupdf/include" }
     sumatrapdf_files()
     files { "src/MuPDF_Exports.cpp" }
@@ -519,23 +563,26 @@ workspace "SumatraPDF"
       "uia", "unarrlib", "libwebp"
     }
     links {
-      "comctl32", "gdiplus", "msimg32", "shlwapi", "urlmon",
-      "version", "windowscodecs", "wininet"
+      "comctl32", "delayimp", "gdiplus", "msimg32", "shlwapi", "urlmon",
+      "version", "wininet"
     }
+    -- this is to prevent dll hijacking
+    linkoptions { "/DELAYLOAD:comctl32.dll /DELAYLOAD:gdiplus.dll /DELAYLOAD:msimg32.dll /DELAYLOAD:shlwapi.dll /DELAYLOAD:urlmon.dll /DELAYLOAD:version.dll /DELAYLOAD:wininet.dll"}
 
 
   project "Uninstaller"
     kind "WindowedApp"
     language "C++"
+    cppdialect "C++17"
     defines { "BUILD_UNINSTALLER" }
-    flags { "NoManifest", "WinMain" }
+    entrypoint "WinMainCRTStartup"
+    flags { "NoManifest" }
     disablewarnings { "4018", "4244", "4264", "4838", "4702", "4706" }
     uninstaller_files()
     includedirs { "src", "src/utils", "ext/zlib", "ext/unarr", "ext/lzma/C" }
     links { "utils", "zlib", "unarrlib" }
     links {
-      "comctl32", "gdiplus", "msimg32", "shlwapi", "urlmon",
-       "version", "windowscodecs", "wininet"
+      "comctl32", "gdiplus", "shlwapi", "version", "wininet"
     }
 
 
@@ -543,7 +590,9 @@ workspace "SumatraPDF"
   project "InstallerNoData"
     kind "WindowedApp"
     language "C++"
-    flags { "NoManifest", "WinMain" }
+    cppdialect "C++17"
+    entrypoint "WinMainCRTStartup"
+    flags { "NoManifest" }
     defines { "NO_LIBWEBP", "NO_LIBMUPDF", "HAVE_ZLIB", "HAVE_BZIP2", "HAVE_7Z" }
     disablewarnings {
       "4018", "4100", "4131", "4244", "4267", "4302", "4311", "4312", "4456",
@@ -552,15 +601,18 @@ workspace "SumatraPDF"
     installer_files()
     includedirs { "src", "src/utils", "ext/zlib", "ext/unarr", "ext/lzma/C", "ext/bzip2" }
     links {
-      "comctl32", "gdiplus", "msimg32", "shlwapi", "urlmon",
-      "version", "windowscodecs", "wininet"
+      "comctl32", "delayimp", "gdiplus", "shlwapi", "version", "wininet"
     }
+    -- this is to prevent dll hijacking
+    linkoptions { "/DELAYLOAD:comctl32.dll /DELAYLOAD:gdiplus.dll /DELAYLOAD:shlwapi.dll /DELAYLOAD:version.dll /DELAYLOAD:wininet.dll"}
 
 
   project "Installer"
     kind "WindowedApp"
     language "C++"
-    flags { "NoManifest", "WinMain" }
+    cppdialect "C++17"
+    entrypoint "WinMainCRTStartup"
+    flags { "NoManifest" }
     defines { "NO_LIBWEBP", "NO_LIBMUPDF", "HAVE_ZLIB", "HAVE_BZIP2", "HAVE_7Z" }
     resdefines { "INSTALL_PAYLOAD_ZIP=.\\%{cfg.targetdir}\\InstallerData.dat" }
     disablewarnings {
@@ -570,15 +622,26 @@ workspace "SumatraPDF"
     installer_files()
     includedirs { "src", "src/utils", "ext/zlib", "ext/unarr", "ext/lzma/C", "ext/bzip2" }
     links {
-      "comctl32", "gdiplus", "msimg32", "shlwapi", "urlmon",
-      "version", "windowscodecs", "wininet"
+      "comctl32", "delayimp", "gdiplus", "shlwapi", "version", "wininet"
     }
-    dependson { "MakeLZSA", "SumatraPDF-no-MUPDF", "PdfFilter", "PdfPreview", "Uninstaller" }
-    -- Note: to allow 64-bit builds on 32-bit machine, always use 32-bit MakeLZSA.exe
-    -- TODO: checkin MakeLZSA.exe to bin and use that because this might still fail
-    -- if we didn't build 32-bit build first
-    prebuildcommands { "cd %{cfg.targetdir} & ..\\rel\\MakeLZSA.exe InstallerData.dat SumatraPDF-no-MUPDF.exe:SumatraPDF.exe libmupdf.dll:libmupdf.dll PdfFilter.dll:PdfFilter.dll PdfPreview.dll:PdfPreview.dll Uninstaller.exe:uninstall.exe ..\\mupdf\\resources\\fonts\\droid\\DroidSansFallback.ttf:DroidSansFallback.ttf"  }
+    -- this is to prevent dll hijacking
+    linkoptions { "/DELAYLOAD:comctl32.dll /DELAYLOAD:gdiplus.dll /DELAYLOAD:shlwapi.dll /DELAYLOAD:version.dll /DELAYLOAD:wininet.dll"}
 
+    dependson { "SumatraPDF-no-MUPDF", "PdfFilter", "PdfPreview", "Uninstaller" }
+    prebuildcommands { "cd %{cfg.targetdir} & ..\\bin\\MakeLZSA.exe InstallerData.dat SumatraPDF-no-MUPDF.exe:SumatraPDF.exe libmupdf.dll:libmupdf.dll PdfFilter.dll:PdfFilter.dll PdfPreview.dll:PdfPreview.dll Uninstaller.exe:uninstall.exe ..\\mupdf\\resources\\fonts\\droid\\DroidSansFallback.ttf:DroidSansFallback.ttf"  }
+
+  project "TestApp"
+    kind "WindowedApp"
+    language "C++"
+    cppdialect "C++17"
+    entrypoint "WinMainCRTStartup"
+    flags { "NoManifest" }
+    includedirs { "src", "src/utils", "src/wingui" }
+    test_app_files()
+    links {
+      "comctl32", "gdiplus", "msimg32", "shlwapi", "urlmon",
+      "version", "wininet", "d2d1.lib",
+    }
 
   -- dummy project that builds all other projects
   project "all"

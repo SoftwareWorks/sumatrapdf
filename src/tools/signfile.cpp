@@ -63,7 +63,7 @@ int main()
     const WCHAR *certName = nullptr;
     const WCHAR *signFilePath = nullptr;
     const WCHAR *pubkeyPath = nullptr;
-    ScopedMem<char> inFileCommentSyntax;
+    AutoFree inFileCommentSyntax;
 
 #define is_arg(name, var) (str::EqI(args.At(i), TEXT(name)) && i + 1 < args.Count() && !var)
     for (size_t i = 1; i < args.Count(); i++) {
@@ -97,8 +97,8 @@ SyntaxError:
     int errorCode = 2;
 
     ScopedMem<BYTE> pubkey;
-    ScopedMem<char> data;
-    ScopedMem<char> hexSignature;
+    AutoFree data;
+    AutoFree hexSignature;
     ScopedMem<BYTE> signature;
     BOOL ok;
 
@@ -197,7 +197,7 @@ SyntaxError:
         const char *lf = str::Find(data, "\r\n") || !str::FindChar(data, '\n') ? "\r\n" : "\n";
         data.Set(str::Format("%s%s Signature sha1:%s%s", data, inFileCommentSyntax, hexSignature, lf));
         dataLen = str::Len(data);
-        hexSignature.Set(str::Dup(data));
+        hexSignature.SetCopy(data);
     }
     else {
         hexSignature.Set(str::Format("sha1:%s\r\n", hexSignature));

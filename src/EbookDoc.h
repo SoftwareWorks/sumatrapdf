@@ -13,7 +13,7 @@ struct ImageData2 {
 char *NormalizeURL(const char *url, const char *base);
 
 class PropertyMap {
-    ScopedMem<char> values[Prop_PdfVersion];
+    AutoFree values[Prop_PdfVersion];
 
     int Find(DocumentProperty prop) const;
 
@@ -32,8 +32,8 @@ class EpubDoc {
 
     str::Str<char> htmlData;
     Vec<ImageData2> images;
-    ScopedMem<WCHAR> tocPath;
-    ScopedMem<WCHAR> fileName;
+    AutoFreeW tocPath;
+    AutoFreeW fileName;
     PropertyMap props;
     bool isNcxToc;
     bool isRtlDoc;
@@ -70,12 +70,12 @@ public:
 #define FB2_TOC_ENTRY_MARK "ToC!Entry!"
 
 class Fb2Doc {
-    ScopedMem<WCHAR> fileName;
+    AutoFreeW fileName;
     IStream *stream;
 
     str::Str<char> xmlData;
     Vec<ImageData2> images;
-    ScopedMem<char> coverImage;
+    AutoFree coverImage;
     PropertyMap props;
     bool isZipped;
     bool hasToc;
@@ -110,7 +110,7 @@ public:
 class PdbReader;
 
 class PalmDoc {
-    ScopedMem<WCHAR> fileName;
+    AutoFreeW fileName;
     str::Str<char> htmlData;
     WStrVec tocEntries;
 
@@ -136,9 +136,9 @@ public:
 /* ********** Plain HTML ********** */
 
 class HtmlDoc {
-    ScopedMem<WCHAR> fileName;
-    ScopedMem<char> htmlData;
-    ScopedMem<char> pagePath;
+    AutoFreeW fileName;
+    AutoFree htmlData;
+    AutoFree pagePath;
     Vec<ImageData2> images;
     PropertyMap props;
 
@@ -163,7 +163,7 @@ public:
 /* ********** Plain Text (and RFCs and TCR) ********** */
 
 class TxtDoc {
-    ScopedMem<WCHAR> fileName;
+    AutoFreeW fileName;
     str::Str<char> htmlData;
     bool isRFC;
 

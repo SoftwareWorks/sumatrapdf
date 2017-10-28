@@ -15,12 +15,12 @@ extern "C" {
 #include "BaseEngine.h"
 #include "PdfCreator.h"
 
-static ScopedMem<WCHAR> gPdfProducer;
+static AutoFreeW gPdfProducer;
 
 void PdfCreator::SetProducerName(const WCHAR *name)
 {
     if (!str::Eq(gPdfProducer, name))
-        gPdfProducer.Set(str::Dup(name));
+        gPdfProducer.SetCopy(name);
 }
 
 static fz_image *render_to_pixmap(fz_context *ctx, HBITMAP hbmp, SizeI size)
@@ -284,7 +284,7 @@ bool PdfCreator::SetProperty(DocumentProperty prop, const WCHAR *value)
     if (!name)
         return false;
 
-    ScopedMem<char> encValue;
+    AutoFree encValue;
     int encValueLen;
     if (Is7BitAscii(value)) {
         encValue.Set(str::conv::ToUtf8(value));
@@ -320,7 +320,7 @@ bool PdfCreator::CopyProperties(BaseEngine *engine)
     };
     bool ok = true;
     for (int i = 0; i < dimof(props); i++) {
-        ScopedMem<WCHAR> value(engine->GetProperty(props[i]));
+        AutoFreeW value(engine->GetProperty(props[i]));
         if (value) {
             ok = ok && SetProperty(props[i], value);
         }
@@ -328,16 +328,15 @@ bool PdfCreator::CopyProperties(BaseEngine *engine)
     return ok;
 }
 
-bool PdfCreator::SaveToFile(const WCHAR *filePath)
+bool PdfCreator::SaveToFile(const char *filePath)
 {
     if (!ctx || !doc) return false;
 
     if (gPdfProducer)
         SetProperty(Prop_PdfProducer, gPdfProducer);
 
-    ScopedMem<char> pathUtf8(str::conv::ToUtf8(filePath));
     fz_try(ctx) {
-        pdf_write_document(doc, pathUtf8, nullptr);
+        pdf_write_document(doc, const_cast<char*>(filePath), nullptr);
     }
     fz_catch(ctx) {
         return false;
@@ -345,7 +344,7 @@ bool PdfCreator::SaveToFile(const WCHAR *filePath)
     return true;
 }
 
-bool PdfCreator::RenderToFile(const WCHAR *pdfFileName, BaseEngine *engine, int dpi)
+bool PdfCreator::RenderToFile(const char *pdfFileName, BaseEngine *engine, int dpi)
 {
     PdfCreator *c = new PdfCreator();
     bool ok = true;

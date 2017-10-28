@@ -33,31 +33,10 @@
 #include "Translations.h"
 #include "uia/Provider.h"
 
-WindowInfo::WindowInfo(HWND hwnd) :
-    ctrl(nullptr), currentTab(nullptr), menu(nullptr), hwndFrame(hwnd), isMenuHidden(false),
-    linkOnLastButtonDown(nullptr), url(nullptr),
-    tocVisible(false), tocLoaded(false), tocKeepSelection(false),
-    isFullScreen(false), presentation(PM_DISABLED),
-    windowStateBeforePresentation(0), nonFullScreenWindowStyle(0),
-    hwndCanvas(nullptr), hwndToolbar(nullptr), hwndReBar(nullptr),
-    hwndFindText(nullptr), hwndFindBox(nullptr), hwndFindBg(nullptr),
-    hwndPageText(nullptr), hwndPageBox(nullptr), hwndPageBg(nullptr), hwndPageTotal(nullptr),
-    hwndTocBox(nullptr), hwndTocTree(nullptr), tocLabelWithClose(nullptr),
-    sidebarSplitter(nullptr), favSplitter(nullptr),
-    hwndInfotip(nullptr), infotipVisible(false),
-    findThread(nullptr), findCanceled(false), printThread(nullptr), printCanceled(false),
-    showSelection(false), mouseAction(MA_IDLE), dragStartPending(false),
-    currPageNo(0),
-    xScrollSpeed(0), yScrollSpeed(0), wheelAccumDelta(0),
-    delayedRepaintTimer(0), stressTest(nullptr),
-    hwndFavBox(nullptr), hwndFavTree(nullptr), favLabelWithClose(nullptr),
-    uia_provider(nullptr), cbHandler(nullptr), frameRateWnd(nullptr),
-    hwndTabBar(nullptr), tabsVisible(false), tabsInTitlebar(false), tabSelectionHistory(nullptr),
-    hwndCaption(nullptr), caption(nullptr), extendedFrameHeight(0)
-{
+WindowInfo::WindowInfo(HWND hwnd) {
+    hwndFrame = hwnd;
     touchState.panStarted = false;
-    buffer = new DoubleBuffer(hwndCanvas, canvasRc);
-    linkHandler = new LinkHandler(*this);
+    linkHandler = new LinkHandler(this);
     notifications = new Notifications();
     fwdSearchMark.show = false;
 }
@@ -114,7 +93,7 @@ EbookController *WindowInfo::AsEbook() const { return ctrl ? ctrl->AsEbook() : n
 void WindowInfo::UpdateCanvasSize()
 {
     RectI rc = ClientRect(hwndCanvas);
-    if (canvasRc == rc)
+    if (buffer && canvasRc == rc)
         return;
     canvasRc = rc;
 
@@ -188,11 +167,11 @@ void WindowInfo::ToggleZoom()
     if (!this->IsDocLoaded()) return;
 
     if (ZOOM_FIT_PAGE == this->ctrl->GetZoomVirtual())
-        this->ctrl->SetZoomVirtual(ZOOM_FIT_WIDTH);
+        this->ctrl->SetZoomVirtual(ZOOM_FIT_WIDTH, nullptr);
     else if (ZOOM_FIT_WIDTH == this->ctrl->GetZoomVirtual())
-        this->ctrl->SetZoomVirtual(ZOOM_FIT_CONTENT);
+        this->ctrl->SetZoomVirtual(ZOOM_FIT_CONTENT, nullptr);
     else
-        this->ctrl->SetZoomVirtual(ZOOM_FIT_PAGE);
+        this->ctrl->SetZoomVirtual(ZOOM_FIT_PAGE, nullptr);
 }
 
 void WindowInfo::MoveDocBy(int dx, int dy)
@@ -251,7 +230,10 @@ void WindowInfo::ShowNotification(const WCHAR *message, int options, Notificatio
     int timeoutMS = (options & NOS_PERSIST) ? 0 : 3000;
     bool highlight = (options & NOS_HIGHLIGHT);
 
-    NotificationWnd *wnd = new NotificationWnd(hwndCanvas, message, timeoutMS, highlight, notifications);
+    NotificationWnd *wnd = new NotificationWnd(hwndCanvas, message, timeoutMS, highlight,
+        [this](NotificationWnd *wnd) {
+        this->notifications->RemoveNotification(wnd);
+    });
     if (NG_CURSOR_POS_HELPER == groupId) {
         wnd->shrinkLimit = 0.7f;
     }
@@ -276,8 +258,8 @@ class RemoteDestination : public PageDestination {
     PageDestType type;
     int pageNo;
     RectD rect;
-    ScopedMem<WCHAR> value;
-    ScopedMem<WCHAR> name;
+    AutoFreeW value;
+    AutoFreeW name;
 
 public:
     RemoteDestination(PageDestination *dest) :
@@ -300,7 +282,7 @@ void LinkHandler::GotoLink(PageDestination *link)
         return;
 
     TabInfo *tab = owner->currentTab;
-    ScopedMem<WCHAR> path(link->GetDestValue());
+    AutoFreeW path(link->GetDestValue());
     PageDestType type = link->GetDestType();
     if (Dest_ScrollTo == type) {
         // TODO: respect link->ld.gotor.new_window for PDF documents ?
@@ -316,7 +298,7 @@ void LinkHandler::GotoLink(PageDestination *link)
                 // treat relative URIs as file paths (without fragment identifier)
                 if (hash)
                     *hash = '\0';
-                str::TransChars(path.Get(), L"/", L"\\"); 
+                str::TransChars(path.Get(), L"/", L"\\");
                 url::DecodeInPlace(path.Get());
                 // LaunchFile will reject unsupported file types
                 LaunchFile(path, nullptr);
@@ -410,7 +392,7 @@ void LinkHandler::LaunchFile(const WCHAR *path, PageDestination *link)
         link = nullptr;
     }
 
-    ScopedMem<WCHAR> fullPath(path::GetDir(owner->ctrl->FilePath()));
+    AutoFreeW fullPath(path::GetDir(owner->ctrl->FilePath()));
     fullPath.Set(path::Join(fullPath, path));
     fullPath.Set(path::Normalize(fullPath));
     // TODO: respect link->ld.gotor.new_window for PDF documents ?
@@ -432,7 +414,7 @@ void LinkHandler::LaunchFile(const WCHAR *path, PageDestination *link)
         // consider bad UI and thus simply don't)
         bool ok = OpenFileExternally(fullPath);
         if (!ok) {
-            ScopedMem<WCHAR> msg(str::Format(_TR("Error loading %s"), fullPath));
+            AutoFreeW msg(str::Format(_TR("Error loading %s"), fullPath));
             owner->ShowNotification(msg, NOS_HIGHLIGHT);
         }
         delete remoteLink;
@@ -443,7 +425,7 @@ void LinkHandler::LaunchFile(const WCHAR *path, PageDestination *link)
     if (!remoteLink)
         return;
 
-    ScopedMem<WCHAR> destName(remoteLink->GetDestName());
+    AutoFreeW destName(remoteLink->GetDestName());
     if (destName) {
         PageDestination *dest = newWin->ctrl->GetNamedDest(destName);
         if (dest) {
@@ -486,7 +468,7 @@ static bool MatchFuzzy(const WCHAR *s1, const WCHAR *s2, bool partially=false)
 PageDestination *LinkHandler::FindTocItem(DocTocItem *item, const WCHAR *name, bool partially)
 {
     for (; item; item = item->next) {
-        ScopedMem<WCHAR> fuzTitle(NormalizeFuzzy(item->title));
+        AutoFreeW fuzTitle(NormalizeFuzzy(item->title));
         if (MatchFuzzy(fuzTitle, name, partially))
             return item->GetLink();
         PageDestination *dest = FindTocItem(item->child, name, partially);
@@ -516,7 +498,7 @@ void LinkHandler::GotoNamedDest(const WCHAR *name)
     }
     else if (ctrl->HasTocTree()) {
         DocTocItem *root = ctrl->GetTocTree();
-        ScopedMem<WCHAR> fuzName(NormalizeFuzzy(name));
+        AutoFreeW fuzName(NormalizeFuzzy(name));
         dest = FindTocItem(root, fuzName);
         if (!dest)
             dest = FindTocItem(root, fuzName, true);

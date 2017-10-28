@@ -8,37 +8,32 @@
 #include "TextSelection.h"
 #include "TextSearch.h"
 
-enum { SEARCH_PAGE, SKIP_PAGE };
-
 #define SkipWhitespace(c) for (; str::IsWs(*(c)); (c)++)
 // ignore spaces between CJK glyphs but not between Latin, Greek, Cyrillic, etc. letters
 // cf. http://code.google.com/p/sumatrapdf/issues/detail?id=959
 #define isnoncjkwordchar(c) (isWordChar(c) && (unsigned short)(c) < 0x2E80)
 
-TextSearch::TextSearch(BaseEngine *engine, PageTextCache *textCache) :
-    TextSelection(engine, textCache),
-    findText(nullptr), anchor(nullptr), pageText(nullptr),
-    caseSensitive(false), forward(true),
-    matchWordStart(false), matchWordEnd(false),
-    findPage(0), findIndex(0), lastText(nullptr)
-{
-    findCache = AllocArray<BYTE>(this->engine->PageCount());
+static void markAllPagesNonSkip(std::vector<bool>& pagesToSkip) {
+    for (size_t i = 0; i < pagesToSkip.size(); i++) {
+        pagesToSkip[i] = false;
+    }
+}
+TextSearch::TextSearch(BaseEngine* engine, PageTextCache* textCache) : TextSelection(engine, textCache) {
+    nPages = engine->PageCount();
+    pagesToSkip.resize(nPages);
+    markAllPagesNonSkip(pagesToSkip);
 }
 
-TextSearch::~TextSearch()
-{
+TextSearch::~TextSearch() {
     Clear();
-    free(findCache);
 }
 
-void TextSearch::Reset()
-{
+void TextSearch::Reset() {
     pageText = nullptr;
     TextSelection::Reset();
 }
 
-void TextSearch::SetText(const WCHAR *text)
-{
+void TextSearch::SetText(const WCHAR* text) {
     // search text starting with a single space enables the 'Match word start'
     // and search text ending in a single space enables the 'Match word end' option
     // (that behavior already "kind of" exists without special treatment, but
@@ -59,7 +54,7 @@ void TextSearch::SetText(const WCHAR *text)
 
     // extract anchor string (the first word or the first symbol) for faster searching
     if (isnoncjkwordchar(*text)) {
-        const WCHAR *end;
+        const WCHAR* end;
         for (end = text; isnoncjkwordchar(*end); end++)
             ;
         anchor = str::DupN(text, end - text);
@@ -77,37 +72,41 @@ void TextSearch::SetText(const WCHAR *text)
     if (str::EndsWith(this->findText, L" "))
         this->findText[str::Len(this->findText) - 1] = '\0';
 
-    memset(this->findCache, SEARCH_PAGE, this->engine->PageCount());
+    markAllPagesNonSkip(pagesToSkip);
 }
 
-void TextSearch::SetSensitive(bool sensitive)
-{
-    if (caseSensitive == sensitive)
+void TextSearch::SetSensitive(bool sensitive) {
+    if (caseSensitive == sensitive) {
         return;
+    }
     this->caseSensitive = sensitive;
 
-    memset(this->findCache, SEARCH_PAGE, this->engine->PageCount());
+    markAllPagesNonSkip(pagesToSkip);
 }
 
-void TextSearch::SetDirection(TextSearchDirection direction)
-{
+void TextSearch::SetDirection(TextSearchDirection direction) {
     bool forward = FIND_FORWARD == direction;
     if (forward == this->forward)
         return;
     this->forward = forward;
-    if (findText)
-        findIndex += (int)str::Len(findText) * (forward ? 1 : -1);
+    if (findText) {
+        int n = (int)str::Len(findText);
+        if (forward) {
+            findIndex += n;
+        } else {
+            findIndex -= n;
+        }
+    }
 }
 
-void TextSearch::SetLastResult(TextSelection *sel)
-{
+void TextSearch::SetLastResult(TextSelection* sel) {
     CopySelection(sel);
 
-    ScopedMem<WCHAR> selection(ExtractText(L" "));
+    AutoFreeW selection(ExtractText(L" "));
     str::NormalizeWS(selection);
     SetText(selection);
 
-    findPage = std::min(startPage, endPage);
+    searchHitStartAt = findPage = std::min(startPage, endPage);
     findIndex = (findPage == startPage ? startGlyph : endGlyph) + (int)str::Len(findText);
     pageText = textCache->GetData(findPage);
     forward = true;
@@ -115,23 +114,29 @@ void TextSearch::SetLastResult(TextSelection *sel)
 
 // try to match "findText" from "start" with whitespace tolerance
 // (ignore all whitespace except after alphanumeric characters)
-int TextSearch::MatchLen(const WCHAR *start) const
-{
+TextSearch::PageAndOffset TextSearch::MatchEnd(const WCHAR* start) const {
     const WCHAR *match = findText, *end = start;
+    const PageAndOffset notFound = {-1, -1};
+    int currentPage = findPage;
+    const WCHAR* currentPageText = pageText;
+    bool lookingAtWs;
 
     if (matchWordStart && start > pageText && isWordChar(start[-1]) && isWordChar(start[0]))
-        return -1;
+        return notFound;
 
     if (!match)
-        return -1;
+        return notFound;
 
     while (*match) {
         if (!*end)
-            return -1;
+            return notFound;
+        /* Going from page n to page n+1 is a space, too.*/
+        lookingAtWs = (!*end && (currentPage < nPages)) || str::IsWs(*end);
         if (caseSensitive ? *match == *end : CharLower((LPWSTR)LOWORD(*match)) == CharLower((LPWSTR)LOWORD(*end)))
             /* characters are identical */;
-        else if (str::IsWs(*match) && str::IsWs(*end))
-            /* treat all whitespace as identical */;
+        else if (str::IsWs(*match) && lookingAtWs)
+            /* treat all whitespace as identical and end of page as whitespace.
+               The end of the document is NOT seen as whitespace */;
         // TODO: Adobe Reader seems to have a more extensive list of
         //       normalizations - is there an easier way?
         else if (*match == '-' && (0x2010 <= *end && *end <= 0x2014))
@@ -142,80 +147,106 @@ int TextSearch::MatchLen(const WCHAR *start) const
         else if (*match == '"' && (0x201c <= *end && *end <= 0x201f))
             /* make QUOTATION MARK also match LEFT/RIGHT DOUBLE QUOTATION MARK */;
         else
-            return -1;
+            return notFound;
         match++;
-        end++;
+        // We might get here either ...
+        if (*end) {
+            // ... because there's a genuine match -> consider next character in next loop iteration
+            end++;
+        } else {
+            // ... or because we were looking at whitespace in the pattern and we were at a page break
+            // -> skip to next page
+            ++currentPage;
+            end = currentPageText = textCache->GetData(currentPage);
+        }
         // treat "??" and "? ?" differently, since '?' could have been a word
         // character that's just missing an encoding (and '?' is the replacement
         // character); cf. http://code.google.com/p/sumatrapdf/issues/detail?id=1574
         if (*match && !isnoncjkwordchar(*(match - 1)) && (*(match - 1) != '?' || *match != '?') ||
-            str::IsWs(*(match - 1)) && str::IsWs(*(end - 1))) {
+            lookingAtWs && str::IsWs(*(match - 1))) {
             SkipWhitespace(match);
             SkipWhitespace(end);
+            while ((!*end) && (currentPage < nPages)) {
+                // treat page break as whitespace, too
+                ++currentPage;
+                end = currentPageText = textCache->GetData(currentPage);
+                SkipWhitespace(end);
+            }
         }
     }
+    if (matchWordEnd && end > currentPageText && isWordChar(end[-1]) && isWordChar(end[0]))
+        return notFound;
 
-    if (matchWordEnd && end > pageText && isWordChar(end[-1]) && isWordChar(end[0]))
-        return -1;
-
-    return (int)(end - start);
+    int off = (int)(end - currentPageText);
+    return {currentPage, off};
 }
 
-static const WCHAR *GetNextIndex(const WCHAR *base, int offset, bool forward)
-{
-    const WCHAR *c = base + offset + (forward ? 0 : -1);
+static const WCHAR* GetNextIndex(const WCHAR* base, int offset, bool forward) {
+    const WCHAR* c = base + offset + (forward ? 0 : -1);
     if (c < base || !*c)
         return nullptr;
     return c;
 }
 
-bool TextSearch::FindTextInPage(int pageNo)
-{
+bool TextSearch::FindTextInPage(int pageNo, TextSearch::PageAndOffset* finalGlyph) {
     if (str::IsEmpty(findText))
         return false;
     if (!pageNo)
         pageNo = findPage;
+    // According to my analysis of 69912675c766b6325f38036913dcf0505a00be36, when we
+    // get here with pageNo != 0 the findText has already been set so I didn't add
+    // a findText = textCache->GetData(findPage) here.
     findPage = pageNo;
 
-    const WCHAR *found;
-    int length;
+    const WCHAR* found;
+    PageAndOffset fg;
     do {
-        if (!anchor)
+        if (!anchor) {
             found = GetNextIndex(pageText, findIndex, forward);
-        else if (forward)
-            found = (caseSensitive ? StrStr : StrStrI)(pageText + findIndex, anchor);
-        else
+        } else if (forward) {
+            const WCHAR* s = pageText + findIndex;
+            if (caseSensitive) {
+                found = StrStr(s, anchor);
+            } else {
+                found = StrStrI(s, anchor);
+            }
+        } else {
             found = StrRStrI(pageText, pageText + findIndex, anchor);
+        }
         if (!found)
             return false;
         findIndex = (int)(found - pageText) + (forward ? 1 : 0);
-        length = MatchLen(found);
-    } while (length <= 0);
+        fg = MatchEnd(found);
+    } while (fg.page <= 0);
 
     int offset = (int)(found - pageText);
+    searchHitStartAt = pageNo;
     StartAt(pageNo, offset);
-    SelectUpTo(pageNo, offset + length);
-    findIndex = offset + (forward ? length : 0);
+    SelectUpTo(fg.page, fg.offset);
+    findIndex = forward ? fg.offset : offset;
 
     // try again if the found text is completely outside the page's mediabox
     if (result.len == 0)
-        return FindTextInPage(pageNo);
+        return FindTextInPage(pageNo, finalGlyph);
 
+    if (finalGlyph) {
+        *finalGlyph = fg;
+    }
     return true;
 }
 
-bool TextSearch::FindStartingAtPage(int pageNo, ProgressUpdateUI *tracker)
-{
+bool TextSearch::FindStartingAtPage(int pageNo, ProgressUpdateUI* tracker) {
     if (str::IsEmpty(findText))
         return false;
 
-    int total = engine->PageCount();
-    while (1 <= pageNo && pageNo <= total && (!tracker || !tracker->WasCanceled())) {
-        if (tracker)
-            tracker->UpdateProgress(pageNo, total);
+    int next = forward ? 1 : -1;
+    while (1 <= pageNo && pageNo <= nPages && (!tracker || !tracker->WasCanceled())) {
+        if (tracker) {
+            tracker->UpdateProgress(pageNo, nPages);
+        }
 
-        if (SKIP_PAGE == findCache[pageNo - 1]) {
-            pageNo += forward ? 1 : -1;
+        if (pagesToSkip[pageNo - 1]) {
+            pageNo += next;
             continue;
         }
 
@@ -223,24 +254,33 @@ bool TextSearch::FindStartingAtPage(int pageNo, ProgressUpdateUI *tracker)
 
         pageText = textCache->GetData(pageNo, &findIndex);
         if (pageText) {
-            if (forward)
+            if (forward) {
                 findIndex = 0;
-            if (FindTextInPage(pageNo))
+            }
+            PageAndOffset r;
+            if (FindTextInPage(pageNo, &r)) {
+                if (forward) {
+                    if (findPage != r.page) {
+                        findPage = r.page;
+                        pageText = textCache->GetData(findPage);
+                    }
+                    findIndex = r.offset;
+                }
                 return true;
-            findCache[pageNo - 1] = SKIP_PAGE;
+            }
+            pagesToSkip[pageNo - 1] = true;
         }
 
-        pageNo += forward ? 1 : -1;
+        pageNo += next;
     }
 
     // allow for the first/last page to be included in the next search
-    findPage = forward ? total + 1 : 0;
+    searchHitStartAt = findPage = forward ? nPages + 1 : 0;
 
     return false;
 }
 
-TextSel *TextSearch::FindFirst(int page, const WCHAR *text, ProgressUpdateUI *tracker)
-{
+TextSel* TextSearch::FindFirst(int page, const WCHAR* text, ProgressUpdateUI* tracker) {
     SetText(text);
 
     if (FindStartingAtPage(page, tracker))
@@ -248,21 +288,31 @@ TextSel *TextSearch::FindFirst(int page, const WCHAR *text, ProgressUpdateUI *tr
     return nullptr;
 }
 
-TextSel *TextSearch::FindNext(ProgressUpdateUI *tracker)
-{
+TextSel* TextSearch::FindNext(ProgressUpdateUI* tracker) {
     CrashIf(!findText);
     if (!findText)
         return nullptr;
 
     if (tracker) {
-        if (tracker->WasCanceled())
+        if (tracker->WasCanceled()) {
             return nullptr;
-        tracker->UpdateProgress(findPage, engine->PageCount());
+        }
+        tracker->UpdateProgress(findPage, nPages);
     }
 
-    if (FindTextInPage())
+    PageAndOffset finalGlyph;
+    if (FindTextInPage(findPage, &finalGlyph)) {
+        if (forward) {
+            findPage = finalGlyph.page;
+            findIndex = finalGlyph.offset;
+            pageText = textCache->GetData(findPage);
+        }
         return &result;
-    if (FindStartingAtPage(findPage + (forward ? 1 : -1), tracker))
+    }
+
+    auto next = forward ? 1 : -1;
+    if (FindStartingAtPage(findPage + next, tracker)) {
         return &result;
+    }
     return nullptr;
 }

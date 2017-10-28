@@ -9,23 +9,15 @@ REM for an alternative approach, see
 REM https://github.com/HaxeFoundation/hxcpp/blob/master/toolchain/msvc-setup.bat
 
 IF "%1" == "2015" GOTO VS_2015
-IF "%1" == "2013" GOTO VS_2013
 IF EXIST "%VS140COMNTOOLS%\vsvars32.bat" GOTO VS_2015
-IF EXIST "%VS120COMNTOOLS%\vsvars32.bat" GOTO VS_2013
 
-ECHO Visual Studio 2013 or 2015 doesn't seem to be installed
+ECHO Visual Studio 2015 or 2015 doesn't seem to be installed
 EXIT /B 1
 
 :VS_2015
 CALL "%VS140COMNTOOLS%\vsvars32.bat"
 SET _VS_VERSION=VS 2015
 REM defining _USING_V140_SDK71_ is only needed for MFC/ATL headers
-GOTO SELECT_PLATFORM
-
-:VS_2013
-CALL "%VS120COMNTOOLS%\vsvars32.bat"
-SET _VS_VERSION=VS 2013
-REM defining _USING_V120_SDK71_ is only needed for MFC/ATL headers
 GOTO SELECT_PLATFORM
 
 :SELECT_PLATFORM

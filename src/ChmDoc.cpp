@@ -24,7 +24,7 @@ bool ChmDoc::HasData(const char *fileName)
     if (!fileName)
         return nullptr;
 
-    ScopedMem<char> tmpName;
+    AutoFree tmpName;
     if (!str::StartsWith(fileName, "/")) {
         tmpName.Set(str::Join("/", fileName));
         fileName = tmpName;
@@ -38,7 +38,7 @@ bool ChmDoc::HasData(const char *fileName)
 
 unsigned char *ChmDoc::GetData(const char *fileName, size_t *lenOut)
 {
-    ScopedMem<char> fileNameTmp;
+    AutoFree fileNameTmp;
     if (!str::StartsWith(fileName, "/")) {
         fileNameTmp.Set(str::Join("/", fileName));
         fileName = fileNameTmp;
@@ -50,7 +50,7 @@ unsigned char *ChmDoc::GetData(const char *fileName, size_t *lenOut)
     int res = chm_resolve_object(chmHandle, fileName, &info);
     if (CHM_RESOLVE_SUCCESS != res && str::FindChar(fileName, '\\')) {
         // Microsoft's HTML Help CHM viewer tolerates backslashes in URLs
-        fileNameTmp.Set(str::Dup(fileName));
+        fileNameTmp.SetCopy(fileName);
         str::TransChars(fileNameTmp, "\\", "/");
         fileName = fileNameTmp;
         res = chm_resolve_object(chmHandle, fileName, &info);
@@ -238,12 +238,12 @@ char *ChmDoc::ResolveTopicID(unsigned int id)
     return nullptr;
 }
 
-void ChmDoc::FixPathCodepage(ScopedMem<char>& path, UINT& fileCP)
+void ChmDoc::FixPathCodepage(AutoFree& path, UINT& fileCP)
 {
     if (!path || HasData(path))
         return;
 
-    ScopedMem<char> utf8Path(ToUtf8((unsigned char *)path.Get()));
+    AutoFree utf8Path(ToUtf8((unsigned char *)path.Get()));
     if (HasData(utf8Path)) {
         path.Set(utf8Path.StealData());
         fileCP = codepage;
@@ -287,8 +287,9 @@ bool ChmDoc::Load(const WCHAR *fileName)
             "/index.htm", "/index.html", "/default.htm", "/default.html"
         };
         for (int i = 0; i < dimof(pathsToTest); i++) {
-            if (HasData(pathsToTest[i]))
-                homePath.Set(str::Dup(pathsToTest[i]));
+            if (HasData(pathsToTest[i])) {
+                homePath.SetCopy(pathsToTest[i]);
+            }
         }
         if (!HasData(homePath))
             return false;
@@ -299,7 +300,7 @@ bool ChmDoc::Load(const WCHAR *fileName)
 
 WCHAR *ChmDoc::GetProperty(DocumentProperty prop)
 {
-    ScopedMem<WCHAR> result;
+    AutoFreeW result;
     if (Prop_Title == prop && title)
         result.Set(ToStr(title));
     else if (Prop_CreatorApp == prop && creator)
@@ -349,14 +350,14 @@ static bool VisitChmTocItem(EbookTocVisitor *visitor, HtmlElement *el, UINT cp, 
 {
     CrashIf(el->tag != Tag_Object || level > 1 && (!el->up || el->up->tag != Tag_Li));
 
-    ScopedMem<WCHAR> name, local;
+    AutoFreeW name, local;
     for (el = el->GetChildByTag(Tag_Param); el; el = el->next) {
         if (Tag_Param != el->tag)
             continue;
-        ScopedMem<WCHAR> attrName(el->GetAttribute("name"));
-        ScopedMem<WCHAR> attrVal(el->GetAttribute("value"));
+        AutoFreeW attrName(el->GetAttribute("name"));
+        AutoFreeW attrVal(el->GetAttribute("value"));
         if (attrName && attrVal && cp != CP_CHM_DEFAULT) {
-            ScopedMem<char> bytes(str::conv::ToCodePage(attrVal, CP_CHM_DEFAULT));
+            AutoFree bytes(str::conv::ToCodePage(attrVal, CP_CHM_DEFAULT));
             attrVal.Set(str::conv::FromCodePage(bytes, cp));
         }
         if (!attrName || !attrVal)
@@ -365,8 +366,9 @@ static bool VisitChmTocItem(EbookTocVisitor *visitor, HtmlElement *el, UINT cp, 
             name.Set(attrVal.StealData());
         else if (str::EqI(attrName, L"Local")) {
             // remove the ITS protocol and any filename references from the URLs
-            if (str::Find(attrVal, L"::/"))
-                attrVal.Set(str::Dup(str::Find(attrVal, L"::/") + 3));
+            if (str::Find(attrVal, L"::/")) {
+                attrVal.SetCopy(str::Find(attrVal, L"::/") + 3);
+            }
             local.Set(attrVal.StealData());
         }
     }
@@ -395,14 +397,14 @@ static bool VisitChmIndexItem(EbookTocVisitor *visitor, HtmlElement *el, UINT cp
     CrashIf(el->tag != Tag_Object || level > 1 && (!el->up || el->up->tag != Tag_Li));
 
     WStrVec references;
-    ScopedMem<WCHAR> keyword, name;
+    AutoFreeW keyword, name;
     for (el = el->GetChildByTag(Tag_Param); el; el = el->next) {
         if (Tag_Param != el->tag)
             continue;
-        ScopedMem<WCHAR> attrName(el->GetAttribute("name"));
-        ScopedMem<WCHAR> attrVal(el->GetAttribute("value"));
+        AutoFreeW attrName(el->GetAttribute("name"));
+        AutoFreeW attrVal(el->GetAttribute("value"));
         if (attrName && attrVal && cp != CP_CHM_DEFAULT) {
-            ScopedMem<char> bytes(str::conv::ToCodePage(attrVal, CP_CHM_DEFAULT));
+            AutoFree bytes(str::conv::ToCodePage(attrVal, CP_CHM_DEFAULT));
             attrVal.Set(str::conv::FromCodePage(bytes, cp));
         }
         if (!attrName || !attrVal)
@@ -413,12 +415,12 @@ static bool VisitChmIndexItem(EbookTocVisitor *visitor, HtmlElement *el, UINT cp
             name.Set(attrVal.StealData());
             // some CHM documents seem to use a lonely Name instead of Keyword
             if (!keyword)
-                keyword.Set(str::Dup(name));
+                keyword.SetCopy(name);
         }
         else if (str::EqI(attrName, L"Local") && name) {
             // remove the ITS protocol and any filename references from the URLs
             if (str::Find(attrVal, L"::/"))
-                attrVal.Set(str::Dup(str::Find(attrVal, L"::/") + 3));
+                attrVal.SetCopy(str::Find(attrVal, L"::/") + 3);
             references.Append(name.StealData());
             references.Append(attrVal.StealData());
         }
@@ -475,7 +477,7 @@ static bool WalkBrokenChmTocOrIndex(EbookTocVisitor *visitor, HtmlParser& p, UIN
 
     HtmlElement *el = p.FindElementByName("body");
     while ((el = p.FindElementByName("object", el)) != nullptr) {
-        ScopedMem<WCHAR> type(el->GetAttribute("type"));
+        AutoFreeW type(el->GetAttribute("type"));
         if (!str::EqI(type, L"text/sitemap"))
             continue;
         if (isIndex)

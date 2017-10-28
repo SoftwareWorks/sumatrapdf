@@ -3,6 +3,7 @@ License: Simplified BSD (see COPYING.BSD) */
 
 #include "BaseUtil.h"
 #include "WinDynCalls.h"
+#include "WinUtil.h"
 
 #define API_DECLARATION(name)                                                                      \
     \
@@ -20,6 +21,8 @@ DBGHELP_API_LIST(API_DECLARATION)
 
 #undef API_DECLARATION
 
+#define API_LOAD(name) Dyn##name = (Sig_##name)GetProcAddress(h, #name);
+
 // Loads a DLL explicitly from the system's library collection
 HMODULE SafeLoadLibrary(const WCHAR *dllName) {
     WCHAR dllPath[MAX_PATH];
@@ -31,8 +34,6 @@ HMODULE SafeLoadLibrary(const WCHAR *dllName) {
         return nullptr;
     return LoadLibraryW(dllPath);
 }
-
-#define API_LOAD(name) Dyn##name = (Sig_##name)GetProcAddress(h, #name);
 
 void InitDynCalls() {
     HMODULE h = SafeLoadLibrary(L"kernel32.dll");
@@ -228,3 +229,49 @@ HRESULT GetReservedNotSupportedValue(IUnknown **punkNotSupportedValue) {
     return DynUiaGetReservedNotSupportedValue(punkNotSupportedValue);
 }
 };
+
+static const WCHAR *dllsToPreload = L"comctl32.dll\0gdiplus.dll\0msimg32.dll\0shlwapi.dll\0urlmon.dll\0version.dll\0windowscodecs.dll\0wininet.dll\0\0";
+
+// try to mitigate dll hijacking by pre-loading all the dlls that we delay load or might
+// be loaded indirectly
+void NoDllHijacking() {
+    const WCHAR *dll = dllsToPreload;
+    while (*dll) {
+        SafeLoadLibrary(dll);
+        seqstrings::SkipStr(dll);
+    }
+}
+
+#pragma warning(push)
+//  C4201: nonstandard extension used: nameless struct/union
+#pragma warning(disable : 4201)
+// https://msdn.microsoft.com/en-us/library/windows/desktop/mt706245(v=vs.85).aspx
+typedef struct _PROCESS_MITIGATION_IMAGE_LOAD_POLICY {
+    union {
+        DWORD  Flags;
+        struct {
+            DWORD NoRemoteImages : 1;
+            DWORD NoLowMandatoryLabelImages : 1;
+            DWORD PreferSystem32Images : 1;
+            DWORD ReservedFlags : 29;
+        };
+    };
+} PROCESS_MITIGATION_IMAGE_LOAD_POLICY, *PPROCESS_MITIGATION_IMAGE_LOAD_POLICY;
+#pragma warning(pop)
+
+// https://github.com/videolan/vlc/blob/8663561d3f71595ebf116f17279a495b67cac713/bin/winvlc.c#L84
+// https://msdn.microsoft.com/en-us/library/windows/desktop/hh769088(v=vs.85).aspx
+// Note: on win 10 it doesn't seem to prevent loading bad Version.dll from the same directory
+// as sumatra. Is it because it's loaded before I get a chance to call this function?
+// Am I calling it wrong?
+// What happens for other dlls?
+void PrioritizeSystemDirectoriesForDllLoad() {
+    if (!DynSetProcessMitigationPolicy) {
+        return;
+    }
+    // Only supported since Win 10
+    PROCESS_MITIGATION_IMAGE_LOAD_POLICY m = { 0 };
+    m.PreferSystem32Images = 1;
+    DynSetProcessMitigationPolicy(ProcessImageLoadPolicy, &m, sizeof(m));
+    DbgOutLastError();
+}

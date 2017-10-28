@@ -18,12 +18,12 @@ static void EnumeratePrinters() {
 
     PRINTER_INFO_5* info5Arr = nullptr;
     DWORD bufSize = 0, printersCount;
-    bool fOk = EnumPrinters(PRINTER_ENUM_LOCAL | PRINTER_ENUM_CONNECTIONS, nullptr, 5, nullptr,
-                            bufSize, &bufSize, &printersCount);
+    bool fOk = EnumPrinters(PRINTER_ENUM_LOCAL | PRINTER_ENUM_CONNECTIONS, nullptr, 5, nullptr, bufSize, &bufSize,
+                            &printersCount);
     if (fOk || GetLastError() == ERROR_INSUFFICIENT_BUFFER) {
         info5Arr = (PRINTER_INFO_5*)malloc(bufSize);
-        fOk = EnumPrinters(PRINTER_ENUM_LOCAL | PRINTER_ENUM_CONNECTIONS, nullptr, 5,
-                           (LPBYTE)info5Arr, bufSize, &bufSize, &printersCount);
+        fOk = EnumPrinters(PRINTER_ENUM_LOCAL | PRINTER_ENUM_CONNECTIONS, nullptr, 5, (LPBYTE)info5Arr, bufSize,
+                           &bufSize, &printersCount);
     }
     if (!fOk || !info5Arr) {
         output.AppendFmt(L"Call to EnumPrinters failed with error %#x", GetLastError());
@@ -31,37 +31,33 @@ static void EnumeratePrinters() {
         free(info5Arr);
         return;
     }
-    ScopedMem<WCHAR> defName(GetDefaultPrinterName());
+    AutoFreeW defName(GetDefaultPrinterName());
     for (DWORD i = 0; i < printersCount; i++) {
         const WCHAR* printerName = info5Arr[i].pPrinterName;
         const WCHAR* printerPort = info5Arr[i].pPortName;
         bool fDefault = str::Eq(defName, printerName);
-        output.AppendFmt(L"%s (Port: %s, attributes: %#x%s)\n", printerName, printerPort,
-                         info5Arr[i].Attributes, fDefault ? L", default" : L"");
+        output.AppendFmt(L"%s (Port: %s, attributes: %#x%s)\n", printerName, printerPort, info5Arr[i].Attributes,
+                         fDefault ? L", default" : L"");
 
         DWORD bins = DeviceCapabilities(printerName, printerPort, DC_BINS, nullptr, nullptr);
-        DWORD binNames =
-            DeviceCapabilities(printerName, printerPort, DC_BINNAMES, nullptr, nullptr);
+        DWORD binNames = DeviceCapabilities(printerName, printerPort, DC_BINNAMES, nullptr, nullptr);
         CrashIf(bins != binNames);
         if (0 == bins) {
             output.Append(L" - no paper bins available\n");
         } else if (bins == (DWORD)-1) {
-            output.AppendFmt(L" - Call to DeviceCapabilities failed with error %#x\n",
-                             GetLastError());
+            output.AppendFmt(L" - Call to DeviceCapabilities failed with error %#x\n", GetLastError());
         } else {
             ScopedMem<WORD> binValues(AllocArray<WORD>(bins));
             DeviceCapabilities(printerName, printerPort, DC_BINS, (WCHAR*)binValues.Get(), nullptr);
-            ScopedMem<WCHAR> binNameValues(AllocArray<WCHAR>(24 * binNames));
+            AutoFreeW binNameValues(AllocArray<WCHAR>(24 * binNames));
             DeviceCapabilities(printerName, printerPort, DC_BINNAMES, binNameValues.Get(), nullptr);
             for (DWORD j = 0; j < bins; j++) {
-                output.AppendFmt(L" - '%s' (%d)\n", binNameValues.Get() + 24 * j,
-                                 binValues.Get()[j]);
+                output.AppendFmt(L" - '%s' (%d)\n", binNameValues.Get() + 24 * j, binValues.Get()[j]);
             }
         }
     }
     free(info5Arr);
-    MessageBox(nullptr, output.Get(), L"SumatraPDF - EnumeratePrinters",
-               MB_OK | MB_ICONINFORMATION);
+    MessageBox(nullptr, output.Get(), L"SumatraPDF - EnumeratePrinters", MB_OK | MB_ICONINFORMATION);
 }
 #endif
 
@@ -133,7 +129,7 @@ static const char* zoomValues =
 // if a number, it's in percent e.g. 12.5 means 12.5%
 // 100 means 100% i.e. actual size as e.g. given in PDF file
 static void ParseZoomValue(float* zoom, const WCHAR* txtOrig) {
-    ScopedMem<char> txtDup(str::conv::ToUtf8(txtOrig));
+    AutoFree txtDup(str::conv::ToUtf8(txtOrig));
     char* txt = str::ToLowerInPlace(txtDup.Get());
     int zoomVal = seqstrings::StrToIdx(zoomValues, txt);
     if (zoomVal != -1) {
@@ -281,7 +277,7 @@ void CommandLineInfo::ParseCommandLine(const WCHAR* cmdLine) {
 #define is_arg_with_param(_argNo) (param && _argNo == arg)
 #define additional_param() argList.At(n + 1)
 #define has_additional_param() ((argCount > n + 1) && ('-' != additional_param()[0]))
-#define handle_string_param(name) name.Set(str::Dup(argList.At(++n)))
+#define handle_string_param(name) name.SetCopy(argList.At(++n))
 #define handle_int_param(name) name = _wtoi(argList.At(++n))
 
     for (size_t n = 1; n < argCount; n++) {
@@ -310,7 +306,7 @@ void CommandLineInfo::ParseCommandLine(const WCHAR* cmdLine) {
             printDialog = true;
         } else if (is_arg_with_param(PrintSettings)) {
             // argument is a comma separated list of page ranges and
-            // advanced options [even|odd] and [noscale|shrink|fit]
+            // advanced options [even|odd], [noscale|shrink|fit] and [autorotation|portrait|landscape]
             // e.g. -print-settings "1-3,5,10-8,odd,fit"
             handle_string_param(printSettings);
             str::RemoveChars(printSettings, L" ");
@@ -320,9 +316,8 @@ void CommandLineInfo::ParseCommandLine(const WCHAR* cmdLine) {
             // always exit on print) and -stress-test (useful for profiling)
             exitWhenDone = true;
         } else if (is_arg_with_param(InverseSearch)) {
-            inverseSearchCmdLine.Set(str::Dup(argList.At(++n)));
-        } else if ((is_arg_with_param(ForwardSearch) || is_arg_with_param(FwdSearch)) &&
-                   argCount > n + 2) {
+            inverseSearchCmdLine.SetCopy(argList.At(++n));
+        } else if ((is_arg_with_param(ForwardSearch) || is_arg_with_param(FwdSearch)) && argCount > n + 2) {
             // -forward-search is for consistency with -inverse-search
             // -fwdsearch is for consistency with -fwdsearch-*
             handle_string_param(forwardSearchOrigin);
@@ -357,7 +352,7 @@ void CommandLineInfo::ParseCommandLine(const WCHAR* cmdLine) {
         } else if (Console == arg) {
             showConsole = true;
         } else if (is_arg_with_param(AppData)) {
-            appdataDir.Set(str::Dup(param));
+            appdataDir.SetCopy(param);
             ++n;
         } else if (is_arg_with_param(Plugin)) {
             // -plugin [<URL>] <parent HWND>
@@ -380,8 +375,7 @@ void CommandLineInfo::ParseCommandLine(const WCHAR* cmdLine) {
                 handle_string_param(stressTestFilter);
             if (has_additional_param() && IsValidPageRange(additional_param()))
                 handle_string_param(stressTestRanges);
-            if (has_additional_param() && str::Parse(additional_param(), L"%dx%$", &num) &&
-                num > 0) {
+            if (has_additional_param() && str::Parse(additional_param(), L"%dx%$", &num) && num > 0) {
                 stressTestCycles = num;
                 n++;
             }
@@ -420,10 +414,9 @@ void CommandLineInfo::ParseCommandLine(const WCHAR* cmdLine) {
             ++n;
         } else if (EscToExit == arg) {
             globalPrefArgs.Append(str::Dup(argList.At(n)));
-        } else if (is_arg_with_param(BgColor) || is_arg_with_param(BgColor2) ||
-                   is_arg_with_param(FwdSearchOffset) || is_arg_with_param(FwdSearchWidth) ||
-                   is_arg_with_param(FwdSearchColor) || is_arg_with_param(FwdSearchPermanent) ||
-                   is_arg_with_param(MangaMode)) {
+        } else if (is_arg_with_param(BgColor) || is_arg_with_param(BgColor2) || is_arg_with_param(FwdSearchOffset) ||
+                   is_arg_with_param(FwdSearchWidth) || is_arg_with_param(FwdSearchColor) ||
+                   is_arg_with_param(FwdSearchPermanent) || is_arg_with_param(MangaMode)) {
             globalPrefArgs.Append(str::Dup(argList.At(n)));
             globalPrefArgs.Append(str::Dup(argList.At(++n)));
         } else if (SetColorRange == arg && argCount > n + 2) {

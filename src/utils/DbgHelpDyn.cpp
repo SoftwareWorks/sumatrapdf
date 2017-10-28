@@ -71,20 +71,20 @@ static bool SetupSymbolPath()
         return false;
     }
 
-    ScopedMem<WCHAR> path(GetSymbolPath());
+    AutoFreeW path(GetSymbolPath());
     if (!path) {
         plog("SetupSymbolPath(): GetSymbolPath() returned nullptr");
         return false;
     }
 
     BOOL ok = FALSE;
-    ScopedMem<WCHAR> tpath(str::conv::FromWStr(path));
+    AutoFreeW tpath(str::conv::FromWStr(path));
     if (DynSymSetSearchPathW) {
         ok = DynSymSetSearchPathW(GetCurrentProcess(), path);
         if (!ok)
             plog("DynSymSetSearchPathW() failed");
     } else {
-        ScopedMem<char> tmp(str::conv::ToAnsi(tpath));
+        AutoFree tmp(str::conv::ToAnsi(tpath));
         ok = DynSymSetSearchPath(GetCurrentProcess(), tmp);
         if (!ok)
             plog("DynSymSetSearchPath() failed");

@@ -1,7 +1,6 @@
 /* Copyright 2015 the SumatraPDF project authors (see AUTHORS file).
    License: GPLv3 */
 
-// utils
 #include "BaseUtil.h"
 #include "Dpi.h"
 #include "GdiPlusUtil.h"
@@ -9,22 +8,23 @@
 #include "SplitterWnd.h"
 #include "UITask.h"
 #include "WinUtil.h"
-// rendering engines
+
 #include "BaseEngine.h"
 #include "EngineManager.h"
-// layout controllers
+
 #include "SettingsStructs.h"
 #include "Controller.h"
 #include "GlobalPrefs.h"
-// ui
+
+#include "Colors.h"
 #include "SumatraPDF.h"
 #include "WindowInfo.h"
 #include "TabInfo.h"
 #include "resource.h"
 #include "AppTools.h"
 #include "TableOfContents.h"
-#include "Tabs.h"
 #include "Translations.h"
+#include "Tabs.h"
 
 /* Define if you want page numbers to be displayed in the ToC sidebar */
 // #define DISPLAY_TOC_PAGE_NUMBERS
@@ -49,7 +49,7 @@ static void TreeView_ExpandRecursively(HWND hTree, HTREEITEM hItem, UINT flag, b
 static void CustomizeTocInfoTip(LPNMTVGETINFOTIP nmit)
 {
     PageDestination *link = ((DocTocItem *)nmit->lParam)->GetLink();
-    ScopedMem<WCHAR> path(link ? link->GetDestValue() : nullptr);
+    AutoFreeW path(link ? link->GetDestValue() : nullptr);
     if (!path)
         return;
     CrashIf(!link); // /analyze claims that this could happen - it really can't
@@ -113,7 +113,7 @@ static void RelayoutTocItem(LPNMTVCUSTOMDRAW ntvcd)
     // Draw the page number right-aligned (if there is one)
     WindowInfo *win = FindWindowInfoByHwnd(hTV);
     DocTocItem *tocItem = (DocTocItem *)item.lParam;
-    ScopedMem<WCHAR> label;
+    AutoFreeW label;
     if (tocItem->pageNo && win && win->IsDocLoaded()) {
         label.Set(win->ctrl->GetPageLabel(tocItem->pageNo));
         label.Set(str::Join(L"  ", label));
@@ -231,8 +231,8 @@ static HTREEITEM AddTocItemToView(HWND hwnd, DocTocItem *entry, HTREEITEM parent
 #ifdef DISPLAY_TOC_PAGE_NUMBERS
     WindowInfo *win = FindWindowInfoByHwnd(hwnd);
     if (entry->pageNo && win && win->IsDocLoaded() && !win->AsEbook()) {
-        ScopedMem<WCHAR> label(win->ctrl->GetPageLabel(entry->pageNo));
-        ScopedMem<WCHAR> text(str::Format(L"%s  %s", entry->title, label));
+        AutoFreeW label(win->ctrl->GetPageLabel(entry->pageNo));
+        AutoFreeW text(str::Format(L"%s  %s", entry->title, label));
         tvinsert.itemex.pszText = text;
         return TreeView_InsertItem(hwnd, &tvinsert);
     }
@@ -330,9 +330,10 @@ void UpdateTocColors(WindowInfo *win)
     COLORREF splitterCol = GetSysColor(COLOR_BTNFACE);
     bool flatTreeWnd = false;
 
-    if (win->AsEbook() && !gGlobalPrefs->useSysColors) {
-        labelBgCol = gGlobalPrefs->ebookUI.backgroundColor;
-        labelTxtCol = gGlobalPrefs->ebookUI.textColor;
+    if (win->AsEbook()) {
+        labelBgCol = GetAppColor(AppColor::DocumentBg);
+        labelTxtCol = GetAppColor(AppColor::DocumentText);
+
         treeBgCol = labelBgCol;
         float factor = 14.f;
         int sign = GetLightness(labelBgCol) + factor > 255 ? 1 : -1;

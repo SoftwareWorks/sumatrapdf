@@ -42,7 +42,7 @@ Vec<SelectionOnPage> *SelectionOnPage::FromRectangle(DisplayModel *dm, RectI rec
 
     for (int pageNo = dm->GetEngine()->PageCount(); pageNo >= 1; --pageNo) {
         PageInfo *pageInfo = dm->GetPageInfo(pageNo);
-        assert(!pageInfo || 0.0 == pageInfo->visibleRatio || pageInfo->shown);
+        AssertCrash(!pageInfo || 0.0 == pageInfo->visibleRatio || pageInfo->shown);
         if (!pageInfo || !pageInfo->shown)
             continue;
 
@@ -247,7 +247,7 @@ void CopySelectionToClipboard(WindowInfo *win)
     else
 #endif
     if (!dm->GetEngine()->IsImageCollection()) {
-        ScopedMem<WCHAR> selText;
+        AutoFreeW selText;
         bool isTextSelection = dm->textSelection->result.len > 0;
         if (isTextSelection) {
             selText.Set(dm->textSelection->ExtractText(L"\r\n"));

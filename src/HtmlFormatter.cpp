@@ -193,7 +193,7 @@ HtmlFormatter::HtmlFormatter(HtmlFormatterArgs *args) :
 
     gfx = mui::AllocGraphicsForMeasureText();
     textMeasure = CreateTextRender(args->textRenderMethod, gfx, 10, 10);
-    defaultFontName.Set(str::Dup(args->GetFontName()));
+    defaultFontName.SetCopy(args->GetFontName());
     defaultFontSize = args->fontSize;
 
     DrawStyle style;
@@ -852,6 +852,7 @@ void HtmlFormatter::HandleTagP(HtmlToken *t, bool isDiv)
         FlushCurrLine(true);
         RevertStyleChange();
     }
+    EmitEmptyLine(0.4f * CurrFont()->GetSize());
 }
 
 void HtmlFormatter::HandleTagFont(HtmlToken *t)

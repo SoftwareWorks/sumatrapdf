@@ -27,7 +27,7 @@ static WCHAR *GetGhostscriptPath()
 TryAgain64Bit:
     for (int i = 0; i < dimof(gsProducts); i++) {
         HKEY hkey;
-        ScopedMem<WCHAR> keyName(str::Join(L"Software\\", gsProducts[i]));
+        AutoFreeW keyName(str::Join(L"Software\\", gsProducts[i]));
         if (RegOpenKeyEx(HKEY_LOCAL_MACHINE, keyName, 0, access, &hkey) != ERROR_SUCCESS)
             continue;
         WCHAR subkey[32];
@@ -49,13 +49,13 @@ TryAgain64Bit:
     // return the path to the newest installation
     for (size_t ix = versions.Count(); ix > 0; ix--) {
         for (int i = 0; i < dimof(gsProducts); i++) {
-            ScopedMem<WCHAR> keyName(str::Format(L"Software\\%s\\%s",
+            AutoFreeW keyName(str::Format(L"Software\\%s\\%s",
                                                  gsProducts[i], versions.At(ix - 1)));
-            ScopedMem<WCHAR> GS_DLL(ReadRegStr(HKEY_LOCAL_MACHINE, keyName, L"GS_DLL"));
+            AutoFreeW GS_DLL(ReadRegStr(HKEY_LOCAL_MACHINE, keyName, L"GS_DLL"));
             if (!GS_DLL)
                 continue;
-            ScopedMem<WCHAR> dir(path::GetDir(GS_DLL));
-            ScopedMem<WCHAR> exe(path::Join(dir, L"gswin32c.exe"));
+            AutoFreeW dir(path::GetDir(GS_DLL));
+            AutoFreeW exe(path::Join(dir, L"gswin32c.exe"));
             if (file::Exists(exe))
                 return exe.StealData();
             exe.Set(path::Join(dir, L"gswin64c.exe"));
@@ -66,13 +66,13 @@ TryAgain64Bit:
 
     // if Ghostscript isn't found in the Registry, try finding it in the %PATH%
     DWORD size = GetEnvironmentVariable(L"PATH", nullptr, 0);
-    ScopedMem<WCHAR> envpath(AllocArray<WCHAR>(size));
+    AutoFreeW envpath(AllocArray<WCHAR>(size));
     if (size > 0 && envpath) {
         GetEnvironmentVariable(L"PATH", envpath, size);
         WStrVec paths;
         paths.Split(envpath, L";", true);
         for (size_t ix = 0; ix < paths.Count(); ix++) {
-            ScopedMem<WCHAR> exe(path::Join(paths.At(ix), L"gswin32c.exe"));
+            AutoFreeW exe(path::Join(paths.At(ix), L"gswin32c.exe"));
             if (file::Exists(exe))
                 return exe.StealData();
             exe.Set(path::Join(paths.At(ix), L"gswin64c.exe"));
@@ -85,7 +85,7 @@ TryAgain64Bit:
 }
 
 class ScopedFile {
-    ScopedMem<WCHAR> path;
+    AutoFreeW path;
 
 public:
     explicit ScopedFile(const WCHAR *path) : path(str::Dup(path)) { }
@@ -121,20 +121,20 @@ static RectI ExtractDSCPageSize(const WCHAR *fileName)
 static BaseEngine *ps2pdf(const WCHAR *fileName)
 {
     // TODO: read from gswin32c's stdout instead of using a TEMP file
-    ScopedMem<WCHAR> shortPath(path::ShortPath(fileName));
-    ScopedMem<WCHAR> tmpFile(path::GetTempPath(L"PsE"));
+    AutoFreeW shortPath(path::ShortPath(fileName));
+    AutoFreeW tmpFile(path::GetTempPath(L"PsE"));
     ScopedFile tmpFileScope(tmpFile);
-    ScopedMem<WCHAR> gswin32c(GetGhostscriptPath());
+    AutoFreeW gswin32c(GetGhostscriptPath());
     if (!shortPath || !tmpFile || !gswin32c)
         return nullptr;
 
     // try to help Ghostscript determine the intended page size
-    ScopedMem<WCHAR> psSetup;
+    AutoFreeW psSetup;
     RectI page = ExtractDSCPageSize(fileName);
     if (!page.IsEmpty())
         psSetup.Set(str::Format(L" << /PageSize [%i %i] >> setpagedevice", page.dx, page.dy));
 
-    ScopedMem<WCHAR> cmdLine(str::Format(
+    AutoFreeW cmdLine(str::Format(
         L"\"%s\" -q -dSAFER -dNOPAUSE -dBATCH -dEPSCrop -sOutputFile=\"%s\" -sDEVICE=pdfwrite -c \".setpdfwrite%s\" -f \"%s\"",
         gswin32c.Get(), tmpFile.Get(), psSetup ? psSetup.Get() : L"", shortPath.Get()));
     fprintf(stderr, "- %s:%d: using '%ls' for creating '%%TEMP%%\\%ls'\n", path::GetBaseName(__FILE__), __LINE__, gswin32c.Get(), path::GetBaseName(tmpFile));
@@ -159,7 +159,7 @@ static BaseEngine *ps2pdf(const WCHAR *fileName)
         return nullptr;
 
     size_t len;
-    ScopedMem<char> pdfData(file::ReadAll(tmpFile, &len));
+    AutoFree pdfData(file::ReadAll(tmpFile, &len));
     if (!pdfData)
         return nullptr;
 
@@ -172,7 +172,7 @@ static BaseEngine *ps2pdf(const WCHAR *fileName)
 
 static BaseEngine *psgz2pdf(const WCHAR *fileName)
 {
-    ScopedMem<WCHAR> tmpFile(path::GetTempPath(L"PsE"));
+    AutoFreeW tmpFile(path::GetTempPath(L"PsE"));
     ScopedFile tmpFileScope(tmpFile);
     if (!tmpFile)
         return nullptr;
@@ -204,22 +204,23 @@ static BaseEngine *psgz2pdf(const WCHAR *fileName)
 // the ps2pdf conversion from Ghostscript returns
 class PsEngineImpl : public BaseEngine {
 public:
-    PsEngineImpl() : fileName(nullptr), pdfEngine(nullptr) { }
+    PsEngineImpl() : pdfEngine(nullptr) { }
+
     virtual ~PsEngineImpl() {
         delete pdfEngine;
     }
+
     BaseEngine *Clone() override {
         BaseEngine *newEngine = pdfEngine->Clone();
         if (!newEngine)
             return nullptr;
         PsEngineImpl *clone = new PsEngineImpl();
-        if (fileName)
-            clone->fileName.Set(str::Dup(fileName));
+        if (FileName())
+            clone->SetFileName(FileName());
         clone->pdfEngine = newEngine;
         return clone;
     }
 
-    const WCHAR *FileName() const override { return fileName; };
     int PageCount() const override {
         return pdfEngine->PageCount();
     }
@@ -227,6 +228,7 @@ public:
     RectD PageMediabox(int pageNo) override {
         return pdfEngine->PageMediabox(pageNo);
     }
+
     RectD PageContentBox(int pageNo, RenderTarget target=Target_View) override {
         return pdfEngine->PageContentBox(pageNo, target);
     }
@@ -240,30 +242,41 @@ public:
     PointD Transform(PointD pt, int pageNo, float zoom, int rotation, bool inverse=false) override {
         return pdfEngine->Transform(pt, pageNo, zoom, rotation, inverse);
     }
+
     RectD Transform(RectD rect, int pageNo, float zoom, int rotation, bool inverse=false) override {
         return pdfEngine->Transform(rect, pageNo, zoom, rotation, inverse);
     }
 
     unsigned char *GetFileData(size_t *cbCount) override {
-        return (unsigned char *)file::ReadAll(fileName, cbCount);
+        return (unsigned char *)file::ReadAll(FileName(), cbCount);
     }
-    bool SaveFileAs(const WCHAR *copyFileName, bool includeUserAnnots=false) override {
+
+    bool SaveFileAs(const char *copyFileName, bool includeUserAnnots=false) override {
         UNUSED(includeUserAnnots);
-        return fileName ? CopyFile(fileName, copyFileName, FALSE) : false;
+        if (!FileName()) {
+            return false;
+        }
+        AutoFreeW dstPath(str::conv::FromUtf8(copyFileName));
+        return CopyFileW(FileName(), dstPath, FALSE);
     }
-    bool SaveFileAsPDF(const WCHAR *pdfFileName, bool includeUserAnnots=false) override {
+
+    bool SaveFileAsPDF(const char *pdfFileName, bool includeUserAnnots=false) override {
         return pdfEngine->SaveFileAs(pdfFileName, includeUserAnnots);
     }
+
     WCHAR * ExtractPageText(int pageNo, const WCHAR *lineSep, RectI **coordsOut=nullptr,
                                     RenderTarget target=Target_View) override {
         return pdfEngine->ExtractPageText(pageNo, lineSep, coordsOut, target);
     }
+
     bool HasClipOptimizations(int pageNo) override {
         return pdfEngine->HasClipOptimizations(pageNo);
     }
+
     PageLayoutType PreferredLayout() override {
         return pdfEngine->PreferredLayout();
     }
+
     WCHAR *GetProperty(DocumentProperty prop) override {
         // omit properties created by Ghostscript
         if (!pdfEngine || Prop_CreationDate == prop || Prop_ModificationDate == prop ||
@@ -276,6 +289,7 @@ public:
     bool SupportsAnnotation(bool forSaving=false) const override {
         return !forSaving && pdfEngine->SupportsAnnotation();
     }
+
     void UpdateUserAnnotations(Vec<PageAnnotation> *list) override {
         pdfEngine->UpdateUserAnnotations(list);
     }
@@ -283,6 +297,7 @@ public:
     bool AllowsPrinting() const override {
         return pdfEngine->AllowsPrinting();
     }
+
     bool AllowsCopyingText() const override {
         return pdfEngine->AllowsCopyingText();
     }
@@ -290,8 +305,9 @@ public:
     float GetFileDPI() const override {
         return pdfEngine->GetFileDPI();
     }
+
     const WCHAR *GetDefaultFileExt() const override {
-        return !str::EndsWithI(fileName, L".eps") ? L".ps" : L".eps";
+        return !str::EndsWithI(FileName(), L".eps") ? L".ps" : L".eps";
     }
 
     bool BenchLoadPage(int pageNo) override {
@@ -301,6 +317,7 @@ public:
     Vec<PageElement *> *GetElements(int pageNo) override {
         return pdfEngine->GetElements(pageNo);
     }
+
     PageElement *GetElementAtPos(int pageNo, PointD pt) override {
         return pdfEngine->GetElementAtPos(pageNo, pt);
     }
@@ -308,9 +325,11 @@ public:
     PageDestination *GetNamedDest(const WCHAR *name) override {
         return pdfEngine->GetNamedDest(name);
     }
+
     bool HasTocTree() const override {
         return pdfEngine->HasTocTree();
     }
+
     DocTocItem *GetTocTree() override {
         return pdfEngine->GetTocTree();
     }
@@ -322,14 +341,13 @@ public:
     static BaseEngine *CreateFromFile(const WCHAR *fileName);
 
 protected:
-    ScopedMem<WCHAR> fileName;
     BaseEngine *pdfEngine;
 
     bool Load(const WCHAR *fileName) {
-        AssertCrash(!this->fileName && !pdfEngine);
+        AssertCrash(!FileName() && !pdfEngine);
         if (!fileName)
             return false;
-        this->fileName.Set(str::Dup(fileName));
+        SetFileName(fileName);
         if (file::StartsWith(fileName, "\x1F\x8B"))
             pdfEngine = psgz2pdf(fileName);
         else
@@ -352,7 +370,7 @@ namespace PsEngine {
 
 bool IsAvailable()
 {
-    ScopedMem<WCHAR> gswin32c(GetGhostscriptPath());
+    AutoFreeW gswin32c(GetGhostscriptPath());
     return gswin32c.Get() != nullptr;
 }
 

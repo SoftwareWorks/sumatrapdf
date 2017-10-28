@@ -7,6 +7,8 @@ class DisplayModel;
 class EbookController;
 struct EbookFormattingData;
 
+typedef std::function<void(RenderedBitmap*)> onBitmapRenderedCb;
+
 class ControllerCallback {
 public:
     virtual ~ControllerCallback() { }
@@ -21,7 +23,7 @@ public:
     virtual void UpdateScrollbars(SizeI canvas) = 0;
     virtual void RequestRendering(int pageNo) = 0;
     virtual void CleanUp(DisplayModel *dm) = 0;
-    virtual void RenderThumbnail(DisplayModel *dm, SizeI size, const std::function<void(RenderedBitmap*)>&) = 0;
+    virtual void RenderThumbnail(DisplayModel *dm, SizeI size, const onBitmapRenderedCb&) = 0;
     // ChmModel //
     // tell the UI to move focus back to the main window
     // (if always == false, then focus is only moved if it's inside
@@ -58,7 +60,7 @@ public:
     virtual void SetDisplayMode(DisplayMode mode, bool keepContinuous=false) = 0;
     virtual DisplayMode GetDisplayMode() const = 0;
     virtual void SetPresentationMode(bool enable) = 0;
-    virtual void SetZoomVirtual(float zoom, PointI *fixPt=nullptr) = 0;
+    virtual void SetZoomVirtual(float zoom, PointI *fixPt) = 0;
     virtual float GetZoomVirtual(bool absolute=false) const = 0;
     virtual float GetNextZoomStep(float towards) const = 0;
     virtual void SetViewPortSize(SizeI size) = 0;

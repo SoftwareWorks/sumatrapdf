@@ -107,21 +107,22 @@ static Vec<PageAnnotation> *ParseFileModifications(const char *data)
 
 Vec<PageAnnotation> *LoadFileModifications(const WCHAR *filePath)
 {
-    ScopedMem<WCHAR> modificationsPath(str::Join(filePath, SMX_FILE_EXT));
-    ScopedMem<char> data(file::ReadAll(modificationsPath, nullptr));
+    AutoFreeW modificationsPath(str::Join(filePath, SMX_FILE_EXT));
+    AutoFree data(file::ReadAll(modificationsPath, nullptr));
     return ParseFileModifications(data);
 }
 
 bool SaveFileModifictions(const WCHAR *filePath, Vec<PageAnnotation> *list)
 {
-    if (!list)
+    if (!list) {
         return false;
+    }
 
-    ScopedMem<WCHAR> modificationsPath(str::Join(filePath, SMX_FILE_EXT));
+    AutoFreeW modificationsPath(str::Join(filePath, SMX_FILE_EXT));
     str::Str<char> data;
     size_t offset = 0;
 
-    ScopedMem<char> prevData(file::ReadAll(modificationsPath, nullptr));
+    AutoFree prevData(file::ReadAll(modificationsPath, nullptr));
     Vec<PageAnnotation> *prevList = ParseFileModifications(prevData);
     bool isUpdate = prevList != nullptr;
     if (isUpdate) {
@@ -132,8 +133,7 @@ bool SaveFileModifictions(const WCHAR *filePath, Vec<PageAnnotation> *list)
         CrashIfDebugOnly(offset != prevList->Count());
         data.AppendAndFree(prevData.StealData());
         delete prevList;
-    }
-    else {
+    } else {
         data.AppendFmt("# SumatraPDF: modifications to \"%S\"\r\n", path::GetBaseName(filePath));
     }
     data.Append("\r\n");
@@ -177,6 +177,6 @@ bool IsModificationsFile(const WCHAR *filePath)
 {
     if (!str::EndsWithI(filePath, SMX_FILE_EXT))
         return false;
-    ScopedMem<WCHAR> origPath(str::DupN(filePath, str::Len(filePath) - str::Len(SMX_FILE_EXT)));
+    AutoFreeW origPath(str::DupN(filePath, str::Len(filePath) - str::Len(SMX_FILE_EXT)));
     return file::Exists(origPath);
 }

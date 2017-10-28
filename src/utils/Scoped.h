@@ -5,47 +5,56 @@
 
 // auto-free memory for arbitrary malloc()ed memory of type T*
 template <typename T>
-class ScopedMem
-{
-    T *ptr;
-public:
+class ScopedMem {
+  public:
+    T* ptr;
+
     ScopedMem() : ptr(nullptr) {}
     explicit ScopedMem(T* ptr) : ptr(ptr) {}
     ~ScopedMem() { free(ptr); }
-    void Set(T *newPtr) {
+    void Set(T* newPtr) {
         free(ptr);
         ptr = newPtr;
     }
-    ScopedMem& operator=(T* newPtr) {
-        free(ptr);
-        ptr = newPtr;
-        return *this;
-    }
-    T *Get() const { return ptr; }
-    T *StealData() {
-        T *tmp = ptr;
+    T* Get() const { return ptr; }
+    T* StealData() {
+        T* tmp = ptr;
         ptr = nullptr;
         return tmp;
     }
     operator T*() const { return ptr; }
 };
 
-class ScopedCritSec
-{
-    CRITICAL_SECTION *cs;
-public:
-    explicit ScopedCritSec(CRITICAL_SECTION *cs) : cs(cs) {
-        EnterCriticalSection(cs);
+template <typename T>
+class AutoFreeStr : public ScopedMem<T> {
+  public:
+    AutoFreeStr() { this->ptr = nullptr; }
+    explicit AutoFreeStr(T* ptr) { this->ptr = ptr; }
+    void SetCopy(const T* newPtr) {
+        free(ptr);
+        ptr = nullptr;
+        if (newPtr) {
+            ptr = str::Dup(newPtr);
+        }
     }
-    ~ScopedCritSec() {
-        LeaveCriticalSection(cs);
-    }
+};
+
+typedef AutoFreeStr<char> AutoFree;
+typedef AutoFreeStr<WCHAR> AutoFreeW;
+
+class ScopedCritSec {
+    CRITICAL_SECTION* cs;
+
+  public:
+    explicit ScopedCritSec(CRITICAL_SECTION* cs) : cs(cs) { EnterCriticalSection(cs); }
+    ~ScopedCritSec() { LeaveCriticalSection(cs); }
 };
 
 class ScopedHandle {
     HANDLE handle;
-public:
-    explicit ScopedHandle(HANDLE handle) : handle(handle) { }
+
+  public:
+    explicit ScopedHandle(HANDLE handle) : handle(handle) {}
     ~ScopedHandle() { CloseHandle(handle); }
     operator HANDLE() const { return handle; }
     bool IsValid() const { return handle != NULL && handle != INVALID_HANDLE_VALUE; }
@@ -53,15 +62,15 @@ public:
 
 // deletes any object at the end of the scope
 template <class T>
-class ScopedPtr
-{
-    T *obj;
-public:
+class ScopedPtr {
+    T* obj;
+
+  public:
     ScopedPtr() : obj(nullptr) {}
     explicit ScopedPtr(T* obj) : obj(obj) {}
     ~ScopedPtr() { delete obj; }
-    T *Detach() {
-        T *tmp = obj;
+    T* Detach() {
+        T* tmp = obj;
         obj = nullptr;
         return tmp;
     }
@@ -75,18 +84,20 @@ public:
 
 template <class T>
 class ScopedComPtr {
-protected:
-    T *ptr;
-public:
-    ScopedComPtr() : ptr(nullptr) { }
-    explicit ScopedComPtr(T *ptr) : ptr(ptr) { }
+  protected:
+    T* ptr;
+
+  public:
+    ScopedComPtr() : ptr(nullptr) {}
+    explicit ScopedComPtr(T* ptr) : ptr(ptr) {}
     ~ScopedComPtr() {
         if (ptr)
             ptr->Release();
     }
     bool Create(const CLSID clsid) {
         CrashIf(ptr);
-        if (ptr) return false;
+        if (ptr)
+            return false;
         HRESULT hr = CoCreateInstance(clsid, nullptr, CLSCTX_ALL, IID_PPV_ARGS(&ptr));
         return SUCCEEDED(hr);
     }
@@ -102,11 +113,12 @@ public:
 
 template <class T>
 class ScopedComQIPtr {
-protected:
-    T *ptr;
-public:
-    ScopedComQIPtr() : ptr(nullptr) { }
-    explicit ScopedComQIPtr(IUnknown *unk) {
+  protected:
+    T* ptr;
+
+  public:
+    ScopedComQIPtr() : ptr(nullptr) {}
+    explicit ScopedComQIPtr(IUnknown* unk) {
         HRESULT hr = unk->QueryInterface(&ptr);
         if (FAILED(hr))
             ptr = nullptr;
@@ -117,11 +129,12 @@ public:
     }
     bool Create(const CLSID clsid) {
         CrashIf(ptr);
-        if (ptr) return false;
+        if (ptr)
+            return false;
         HRESULT hr = CoCreateInstance(clsid, nullptr, CLSCTX_ALL, IID_PPV_ARGS(&ptr));
         return SUCCEEDED(hr);
     }
-    T* operator=(IUnknown *newUnk) {
+    T* operator=(IUnknown* newUnk) {
         if (ptr)
             ptr->Release();
         HRESULT hr = newUnk->QueryInterface(&ptr);
@@ -142,8 +155,9 @@ public:
 template <typename T>
 class ScopedGdiObj {
     T obj;
-public:
-    explicit ScopedGdiObj(T obj) : obj(obj) { }
+
+  public:
+    explicit ScopedGdiObj(T obj) : obj(obj) {}
     ~ScopedGdiObj() { DeleteObject(obj); }
     operator T() const { return obj; }
 };
@@ -151,38 +165,48 @@ typedef ScopedGdiObj<HFONT> ScopedFont;
 typedef ScopedGdiObj<HPEN> ScopedPen;
 typedef ScopedGdiObj<HBRUSH> ScopedBrush;
 
+class ScopedHDC {
+    HDC hdc;
+
+  public:
+    explicit ScopedHDC(HDC hdc) : hdc(hdc) {}
+    ~ScopedHDC() { DeleteDC(hdc); }
+    operator HDC() const { return hdc; }
+};
+
 class ScopedHdcSelect {
     HDC hdc;
     HGDIOBJ prev;
-public:
+
+  public:
     ScopedHdcSelect(HDC hdc, HGDIOBJ obj) : hdc(hdc) { prev = SelectObject(hdc, obj); }
     ~ScopedHdcSelect() { SelectObject(hdc, prev); }
 };
 
 class ScopedCom {
-public:
+  public:
     ScopedCom() { (void)CoInitialize(nullptr); }
     ~ScopedCom() { CoUninitialize(); }
 };
 
 class ScopedOle {
-public:
+  public:
     ScopedOle() { (void)OleInitialize(nullptr); }
     ~ScopedOle() { OleUninitialize(); }
 };
 
 class ScopedGdiPlus {
-protected:
+  protected:
     Gdiplus::GdiplusStartupInput si;
     Gdiplus::GdiplusStartupOutput so;
     ULONG_PTR token, hookToken;
     bool noBgThread;
 
-public:
+  public:
     // suppress the GDI+ background thread when initiating in WinMain,
     // as that thread causes DDE messages to be sent too early and
     // thus causes unexpected timeouts
-    explicit ScopedGdiPlus(bool inWinMain=false) : noBgThread(inWinMain) {
+    explicit ScopedGdiPlus(bool inWinMain = false) : noBgThread(inWinMain) {
         si.SuppressBackgroundThread = noBgThread;
         Gdiplus::GdiplusStartup(&token, &si, &so);
         if (noBgThread)

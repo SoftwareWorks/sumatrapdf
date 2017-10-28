@@ -201,11 +201,11 @@ SquareTree::SquareTree(const char *data) : root(nullptr)
 {
     // convert the file content to UTF-8
     if (str::StartsWith(data, UTF8_BOM))
-        dataUtf8.Set(str::Dup(data + 3));
+        dataUtf8.SetCopy(data + 3);
     else if (str::StartsWith(data, UTF16_BOM))
         dataUtf8.Set(str::conv::ToUtf8((const WCHAR *)(data + 2)));
     else if (data)
-        dataUtf8.Set(str::conv::ToUtf8(ScopedMem<WCHAR>(str::conv::FromAnsi(data))));
+        dataUtf8.Set(str::conv::ToUtf8(AutoFreeW(str::conv::FromAnsi(data))));
     if (!dataUtf8)
         return;
 

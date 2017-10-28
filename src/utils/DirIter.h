@@ -14,9 +14,9 @@ class DirIter
     bool                recursive;
 
     WStrVec             dirsToVisit;
-    ScopedMem<WCHAR>    startDir;
-    ScopedMem<WCHAR>    currDir;
-    ScopedMem<WCHAR>    currPath;
+    AutoFreeW    startDir;
+    AutoFreeW    currDir;
+    AutoFreeW    currPath;
     HANDLE              currFindHandle;
     WIN32_FIND_DATA     currFindData;
     bool                foundNext;
@@ -26,7 +26,7 @@ class DirIter
 
 public:
     DirIter(const WCHAR *dir, bool recursive=false) : foundNext(false), currFindHandle(nullptr), recursive(recursive) {
-        startDir.Set(str::Dup(dir));
+        startDir.SetCopy(dir);
     }
     ~DirIter() { FindClose(currFindHandle); }
 

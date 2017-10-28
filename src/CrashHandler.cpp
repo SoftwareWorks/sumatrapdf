@@ -1,18 +1,17 @@
 /* Copyright 2015 the SumatraPDF project authors (see AUTHORS file).
    License: Simplified BSD */
 
-// utils
 #include "BaseUtil.h"
 #include <exception>
 #include <tlhelp32.h>
 #include <signal.h>
+
 #include "WinDynCalls.h"
 #include "DbgHelpDyn.h"
 #include "FileUtil.h"
 #include "HttpUtil.h"
 #include "LzmaSimpleArchive.h"
 #include "WinUtil.h"
-// ui
 #include "SumatraPDF.h"
 #include "AppTools.h"
 #include "CrashHandler.h"
@@ -22,6 +21,11 @@
 
 #if !defined(CRASH_SUBMIT_SERVER) || !defined(CRASH_SUBMIT_URL)
 #define CRASH_SUBMIT_SERVER L"kjktools.org"
+#define CRASH_SUBMIT_PORT 443
+
+//#define CRASH_SUBMIT_SERVER L"127.0.0.1"
+//#define CRASH_SUBMIT_PORT 6020
+
 #define CRASH_SUBMIT_URL    L"/crashreports/submit?app=SumatraPDF&ver=" CURR_VERSION_STR
 #endif
 
@@ -132,12 +136,12 @@ static void SendCrashInfo(char *s)
 
     str::Str<char> data(2048, gCrashHandlerAllocator);
     data.AppendFmt("--%s\r\n", boundary);
-    data.Append("Content-Disposition: form-data; name=\"file\"; filename=\"test.bin\"\r\n\r\n");
+    data.Append("Content-Disposition: form-data; name=\"file\"; filename=\"sumcrash.txt\"\r\n\r\n");
     data.Append(s);
     data.Append("\r\n");
     data.AppendFmt("\r\n--%s--\r\n", boundary);
 
-    HttpPost(CRASH_SUBMIT_SERVER, CRASH_SUBMIT_URL, &headers, &data);
+    HttpPost(CRASH_SUBMIT_SERVER, CRASH_SUBMIT_PORT, CRASH_SUBMIT_URL, &headers, &data);
     plogf("SendCrashInfo() finished");
 }
 
@@ -372,8 +376,7 @@ static const char *OsNameFromVer(OSVERSIONINFOEX ver)
 
 static void GetOsVersion(str::Str<char>& s)
 {
-    OSVERSIONINFOEX ver;
-    ZeroMemory(&ver, sizeof(ver));
+    OSVERSIONINFOEX ver = { 0 };
     ver.dwOSVersionInfoSize = sizeof(ver);
 #pragma warning(push)
 #pragma warning(disable: 4996) // 'GetVersionEx': was declared deprecated
@@ -410,7 +413,7 @@ static void GetProcessorName(str::Str<char>& s)
     if (!name)
         return;
 
-    ScopedMem<char> tmp(str::conv::ToUtf8(name));
+    AutoFree tmp(str::conv::ToUtf8(name));
     s.AppendFmt("Processor: %s\r\n", tmp.Get());
     free(name);
 }
@@ -419,8 +422,8 @@ static void GetMachineName(str::Str<char>& s)
 {
     WCHAR *s1 = ReadRegStr(HKEY_LOCAL_MACHINE, L"HARDWARE\\DESCRIPTION\\System\\BIOS", L"SystemFamily");
     WCHAR *s2 = ReadRegStr(HKEY_LOCAL_MACHINE, L"HARDWARE\\DESCRIPTION\\System\\BIOS", L"SystemVersion");
-    ScopedMem<char> s1u(s1 ? str::conv::ToUtf8(s1) : nullptr);
-    ScopedMem<char> s2u(s2 ? str::conv::ToUtf8(s2) : nullptr);
+    AutoFree s1u(s1 ? str::conv::ToUtf8(s1) : nullptr);
+    AutoFree s2u(s2 ? str::conv::ToUtf8(s2) : nullptr);
 
     if (!s1u && !s2u)
         ; // pass
@@ -449,12 +452,12 @@ static void GetGraphicsDriverInfo(str::Str<char>& s)
     // There can be more than one driver, they are in 0000, 0001 etc.
     for (int i=0; ; i++)
     {
-        ScopedMem<WCHAR> key(str::Format(GFX_DRIVER_KEY_FMT, i));
-        ScopedMem<WCHAR> v1(ReadRegStr(HKEY_LOCAL_MACHINE, key, L"DriverDesc"));
+        AutoFreeW key(str::Format(GFX_DRIVER_KEY_FMT, i));
+        AutoFreeW v1(ReadRegStr(HKEY_LOCAL_MACHINE, key, L"DriverDesc"));
         // I assume that if I can't read the value, there are no more drivers
         if (!v1)
             break;
-        ScopedMem<char> v1a(str::conv::ToUtf8(v1));
+        AutoFree v1a(str::conv::ToUtf8(v1));
         s.AppendFmt("Graphics driver %d\r\n", i);
         s.AppendFmt("  DriverDesc:         %s\r\n", v1.Get());
         v1.Set(ReadRegStr(HKEY_LOCAL_MACHINE, key, L"DriverVersion"));
@@ -515,10 +518,10 @@ static bool GetModules(str::Str<char>& s)
     mod.dwSize = sizeof(mod);
     BOOL cont = Module32First(snap, &mod);
     while (cont) {
-        ScopedMem<char> nameA(str::conv::ToUtf8(mod.szModule));
+        AutoFree nameA(str::conv::ToUtf8(mod.szModule));
         if (str::EqI(nameA.Get(), "winex11.drv"))
             isWine = true;
-        ScopedMem<char> pathA(str::conv::ToUtf8(mod.szExePath));
+        AutoFree pathA(str::conv::ToUtf8(mod.szExePath));
         s.AppendFmt("Module: %p %06X %-16s %s\r\n", mod.modBaseAddr, mod.modBaseSize, nameA.Get(), pathA.Get());
         cont = Module32Next(snap, &mod);
     }
@@ -596,7 +599,7 @@ static bool BuildSymbolPath()
 #endif
 #if 0
     // when running local builds, *.pdb is in the same dir as *.exe
-    ScopedMem<WCHAR> exePath(GetExePath());
+    AutoFreeW exePath(GetExePath());
     path.Append(exePath);
 #endif
     gSymbolPathW = path.StealData();
@@ -672,7 +675,7 @@ int __cdecl _purecall() {
 
 void InstallCrashHandler(const WCHAR *crashDumpPath, const WCHAR *symDir)
 {
-    assert(!gDumpEvent && !gDumpThread);
+    AssertCrash(!gDumpEvent && !gDumpThread);
 
     if (!crashDumpPath)
         return;

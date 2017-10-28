@@ -55,11 +55,13 @@ var (
 	flgListS3        bool
 	flgAnalyze       bool
 	flgNoCleanCheck  bool
+	flgBuildMakeLzsa bool
 	svnPreReleaseVer string
 	gitSha1          string
 	sumatraVersion   string
 	timeStart        time.Time
 	cachedSecrets    *Secrets
+	tryVs2017        = true // TODO: doesn't work yet
 )
 
 func parseCmdLine() {
@@ -67,17 +69,25 @@ func parseCmdLine() {
 	flag.BoolVar(&flgSmoke, "smoke", false, "do a smoke (sanity) build")
 	flag.BoolVar(&flgRelease, "release", false, "do a release build")
 	flag.BoolVar(&flgPreRelease, "prerelease", false, "do a pre-release build")
+	flag.BoolVar(&flgBuildMakeLzsa, "build-makelzsa", false, "build makelzsa.exe")
 	flag.BoolVar(&flgAnalyze, "analyze", false, "run analyze (prefast) and create summary of bugs as html file")
 	flag.BoolVar(&flgUpload, "upload", false, "upload to s3 for release/prerelease builds")
 	// -no-clean-check is useful when testing changes to this build script
 	flag.BoolVar(&flgNoCleanCheck, "no-clean-check", false, "allow running if repo has changes (for testing build script)")
 	flag.Parse()
 	// must provide an action to perform
-	if flgListS3 || flgSmoke || flgRelease || flgPreRelease || flgAnalyze {
+	if flgListS3 || flgSmoke || flgRelease || flgPreRelease || flgAnalyze || flgBuildMakeLzsa {
 		return
 	}
 	flag.Usage()
 	os.Exit(1)
+}
+
+func finalizeThings2() {
+	printTimings()
+	fmt.Printf("total time: %s\n", time.Since(timeStart))
+	logToFile(fmt.Sprintf("total time: %s\n", time.Since(timeStart)))
+	closeLogFile()
 }
 
 func finalizeThings(crashed bool) {
@@ -96,10 +106,10 @@ func readSecretsMust() *Secrets {
 	}
 	path := pj("scripts", "secrets.json")
 	d, err := ioutil.ReadFile(path)
-	fatalif(err != nil, "readSecretsMust(): error %s reading file '%s'\n", err, path)
+	fatalIf(err != nil, "readSecretsMust(): error %s reading file '%s'\n", err, path)
 	var s Secrets
 	err = json.Unmarshal(d, &s)
-	fatalif(err != nil, "readSecretsMust(): failed to json-decode file '%s'. err: %s, data:\n%s\n", path, err, string(d))
+	fatalIf(err != nil, "readSecretsMust(): failed to json-decode file '%s'. err: %s, data:\n%s\n", path, err, string(d))
 	cachedSecrets = &s
 	return cachedSecrets
 }
@@ -111,7 +121,7 @@ func revertBuildConfig() {
 func extractSumatraVersionMust() string {
 	path := pj("src", "Version.h")
 	d, err := ioutil.ReadFile(path)
-	fataliferr(err)
+	fatalIfErr(err)
 	lines := toTrimmedLines(d)
 	s := "#define CURR_VERSION "
 	for _, l := range lines {
@@ -127,12 +137,12 @@ func extractSumatraVersionMust() string {
 
 func getGitLinearVersionMust() int {
 	out, err := runExe("git", "log", "--oneline")
-	fataliferr(err)
+	fatalIfErr(err)
 	lines := toTrimmedLines(out)
 	// we add 1000 to create a version that is larger than the svn version
 	// from the time we used svn
 	n := len(lines) + 1000
-	fatalif(n < 10000, "getGitLinearVersion: n is %d (should be > 10000)", n)
+	fatalIf(n < 10000, "getGitLinearVersion: n is %d (should be > 10000)", n)
 	return n
 }
 
@@ -140,12 +150,12 @@ func verifyGitCleanMust() {
 	if flgNoCleanCheck {
 		return
 	}
-	fatalif(!isGitClean(), "git has unsaved changes\n")
+	fatalIf(!isGitClean(), "git has unsaved changes\n")
 }
 
 func verifyStartedInRightDirectoryMust() {
 	path := buildConfigPath()
-	fatalif(!fileExists(path), "started in wrong directory (%s doesn't exist)\n", path)
+	fatalIf(!fileExists(path), "started in wrong directory (%s doesn't exist)\n", path)
 }
 
 func buildConfigPath() string {
@@ -156,14 +166,15 @@ func certPath() string {
 	return pj("scripts", "cert.pfx")
 }
 
+// writes src/utils/BuildConfig.h to over-ride some of build settings
 func setBuildConfig(sha1, preRelVer string) {
-	fatalif(sha1 == "", "sha1 must be set")
+	fatalIf(sha1 == "", "sha1 must be set")
 	s := fmt.Sprintf("#define GIT_COMMIT_ID %s\n", sha1)
 	if preRelVer != "" {
 		s += fmt.Sprintf("#define SVN_PRE_RELEASE_VER %s\n", preRelVer)
 	}
 	err := ioutil.WriteFile(buildConfigPath(), []byte(s), 644)
-	fataliferr(err)
+	fatalIfErr(err)
 }
 
 // we shouldn't re-upload files. We upload manifest-${ver}.txt last, so we
@@ -173,7 +184,7 @@ func verifyPreReleaseNotInS3Must(ver string) {
 		return
 	}
 	s3Path := s3PreRelDir + fmt.Sprintf("SumatraPDF-prerelease-%s-manifest.txt", ver)
-	fatalif(s3Exists(s3Path), "build %d already exists in s3 because '%s' exists\n", ver, s3Path)
+	fatalIf(s3Exists(s3Path), "build %d already exists in s3 because '%s' exists\n", ver, s3Path)
 }
 
 func verifyReleaseNotInS3Must(ver string) {
@@ -181,15 +192,15 @@ func verifyReleaseNotInS3Must(ver string) {
 		return
 	}
 	s3Path := s3RelDir + fmt.Sprintf("SumatraPDF-%s-manifest.txt", ver)
-	fatalif(s3Exists(s3Path), "build '%s' already exists in s3 because '%s' existst\n", ver, s3Path)
+	fatalIf(s3Exists(s3Path), "build '%s' already exists in s3 because '%s' existst\n", ver, s3Path)
 }
 
 // check we have cert for signing and s3 creds for file uploads
 func verifyHasReleaseSecretsMust() {
 	p := certPath()
-	fatalif(!fileExists(p), "verifyHasPreReleaseSecretsMust(): certificate file '%s' doesn't exist\n", p)
+	fatalIf(!fileExists(p), "verifyHasPreReleaseSecretsMust(): certificate file '%s' doesn't exist\n", p)
 	secrets := readSecretsMust()
-	fatalif(secrets.CertPwd == "", "CertPwd missing in %s\n", p)
+	fatalIf(secrets.CertPwd == "", "CertPwd missing in %s\n", p)
 
 	if flgUpload {
 		s3SetSecrets(secrets.AwsAccess, secrets.AwsSecret)
@@ -202,7 +213,7 @@ func runTestUtilMust(dir string) {
 	cmd.Dir = "rel"
 	out, err := cmd.CombinedOutput()
 	logCmdResult(cmd, out, err)
-	fataliferr(err)
+	fatalIfErr(err)
 	appendTiming(time.Since(timeStart), cmdToStr(cmd))
 }
 
@@ -213,17 +224,17 @@ var (
 
 func addZipFileMust(w *zip.Writer, path string) {
 	fi, err := os.Stat(path)
-	fataliferr(err)
+	fatalIfErr(err)
 	fih, err := zip.FileInfoHeader(fi)
-	fataliferr(err)
+	fatalIfErr(err)
 	fih.Name = filepath.Base(path)
 	fih.Method = zip.Deflate
 	d, err := ioutil.ReadFile(path)
-	fataliferr(err)
+	fatalIfErr(err)
 	fw, err := w.CreateHeader(fih)
-	fataliferr(err)
+	fatalIfErr(err)
 	_, err = fw.Write(d)
-	fataliferr(err)
+	fatalIfErr(err)
 	// fw is just a io.Writer so we can't Close() it. It's not necessary as
 	// it's implicitly closed by the next Create(), CreateHeader()
 	// or Close() call on zip.Writer
@@ -232,18 +243,18 @@ func addZipFileMust(w *zip.Writer, path string) {
 func createExeZipWithGoMust(dir string) {
 	path := pj(dir, "SumatraPDF.zip")
 	f, err := os.Create(path)
-	fataliferr(err)
+	fatalIfErr(err)
 	defer f.Close()
 	zw := zip.NewWriter(f)
 	addZipFileMust(zw, pj(dir, "SumatraPDF.exe"))
 	err = zw.Close()
-	fataliferr(err)
+	fatalIfErr(err)
 }
 
 func createExeZipWithPigz(dir string) {
 	srcFile := "SumatraPDF.exe"
 	srcPath := filepath.Join(dir, srcFile)
-	fatalif(!fileExists(srcPath), "file '%s' doesn't exist\n", srcPath)
+	fatalIf(!fileExists(srcPath), "file '%s' doesn't exist\n", srcPath)
 
 	// this is the file that pigz.exe will create
 	dstFileTmp := "SumatraPDF.exe.zip"
@@ -256,9 +267,9 @@ func createExeZipWithPigz(dir string) {
 	removeFileMust(dstPath)
 
 	wd, err := os.Getwd()
-	fataliferr(err)
+	fatalIfErr(err)
 	pigzExePath := filepath.Join(wd, "bin", "pigz.exe")
-	fatalif(!fileExists(pigzExePath), "file '%s' doesn't exist\n", pigzExePath)
+	fatalIf(!fileExists(pigzExePath), "file '%s' doesn't exist\n", pigzExePath)
 	cmd := exec.Command(pigzExePath, "-11", "--keep", "--zip", srcFile)
 	// in pigz we don't control the name of the file created inside so
 	// so when we run pigz the current directory is the same as
@@ -266,11 +277,11 @@ func createExeZipWithPigz(dir string) {
 	cmd.Dir = dir
 	fmt.Printf("Running %s\n", cmd.Args)
 	_, err = runCmd(cmd, true)
-	fataliferr(err)
+	fatalIfErr(err)
 
-	fatalif(!fileExists(dstPathTmp), "file '%s' doesn't exist\n", dstPathTmp)
+	fatalIf(!fileExists(dstPathTmp), "file '%s' doesn't exist\n", dstPathTmp)
 	err = os.Rename(dstPathTmp, dstPath)
-	fataliferr(err)
+	fatalIfErr(err)
 }
 
 // createExeZipWithGoMust() is faster, createExeZipWithPigz() generates slightly
@@ -283,7 +294,7 @@ func createExeZipMust(dir string) {
 func createPdbZipMust(dir string) {
 	path := pj(dir, "SumatraPDF.pdb.zip")
 	f, err := os.Create(path)
-	fataliferr(err)
+	fatalIfErr(err)
 	defer f.Close()
 	w := zip.NewWriter(f)
 
@@ -292,22 +303,19 @@ func createPdbZipMust(dir string) {
 	}
 
 	err = w.Close()
-	fataliferr(err)
+	fatalIfErr(err)
 }
 
 func createPdbLzsaMust(dir string) {
 	args := []string{"SumatraPDF.pdb.lzsa"}
 	args = append(args, pdbFiles...)
-	// refer to rel\MakeLZSA.exe using absolute path so that we always
-	// use 32-bit version and to avoid issues with running it in different
-	// directories when name is relative
 	curDir, err := os.Getwd()
-	fataliferr(err)
-	makeLzsaPath := pj(curDir, "rel", "MakeLZSA.exe")
-	cmd := getCmd(makeLzsaPath, args...)
+	fatalIfErr(err)
+	makeLzsaPath := pj(curDir, "bin", "MakeLZSA.exe")
+	cmd := exec.Command(makeLzsaPath, args...)
 	cmd.Dir = dir
 	_, err = runCmdLogged(cmd, true)
-	fataliferr(err)
+	fatalIfErr(err)
 }
 
 func buildPreRelease() {
@@ -323,8 +331,9 @@ func buildPreRelease() {
 	downloadPigzMust()
 
 	setBuildConfig(gitSha1, svnPreReleaseVer)
-	err = runMsbuild(true, "vs2015\\SumatraPDF.sln", "/t:SumatraPDF;SumatraPDF-no-MUPDF;PdfFilter;PdfPreview;Uninstaller;test_util", "/p:Configuration=Release;Platform=Win32", "/m")
-	fataliferr(err)
+	slnPath := filepath.Join(vsVer, "SumatraPDF.sln")
+	err = runMsbuild(true, slnPath, "/t:SumatraPDF;SumatraPDF-no-MUPDF;PdfFilter;PdfPreview;Uninstaller;test_util", "/p:Configuration=Release;Platform=Win32", "/m")
+	fatalIfErr(err)
 	runTestUtilMust("rel")
 	signMust(pj("rel", "SumatraPDF.exe"))
 	signMust(pj("rel", "libmupdf.dll"))
@@ -332,12 +341,12 @@ func buildPreRelease() {
 	signMust(pj("rel", "PdfPreview.dll"))
 	signMust(pj("rel", "SumatraPDF-no-MUPDF.exe"))
 	signMust(pj("rel", "Uninstaller.exe"))
-	err = runMsbuild(true, "vs2015\\SumatraPDF.sln", "/t:Installer", "/p:Configuration=Release;Platform=Win32", "/m")
-	fataliferr(err)
+	err = runMsbuild(true, slnPath, "/t:Installer", "/p:Configuration=Release;Platform=Win32", "/m")
+	fatalIfErr(err)
 	signMust(pj("rel", "Installer.exe"))
 
-	err = runMsbuild(true, "vs2015\\SumatraPDF.sln", "/t:SumatraPDF;SumatraPDF-no-MUPDF;PdfFilter;PdfPreview;Uninstaller;test_util", "/p:Configuration=Release;Platform=x64", "/m")
-	fataliferr(err)
+	err = runMsbuild(true, slnPath, "/t:SumatraPDF;SumatraPDF-no-MUPDF;PdfFilter;PdfPreview;Uninstaller;test_util", "/p:Configuration=Release;Platform=x64", "/m")
+	fatalIfErr(err)
 
 	if isOS64Bit() {
 		runTestUtilMust("rel64")
@@ -348,8 +357,8 @@ func buildPreRelease() {
 	signMust(pj("rel", "PdfPreview.dll"))
 	signMust(pj("rel64", "SumatraPDF-no-MUPDF.exe"))
 	signMust(pj("rel64", "Uninstaller.exe"))
-	err = runMsbuild(true, "vs2015\\SumatraPDF.sln", "/t:Installer", "/p:Configuration=Release;Platform=x64", "/m")
-	fataliferr(err)
+	err = runMsbuild(true, slnPath, "/t:Installer", "/p:Configuration=Release;Platform=x64", "/m")
+	fatalIfErr(err)
 	signMust(pj("rel64", "Installer.exe"))
 
 	createPdbZipMust("rel")
@@ -370,6 +379,20 @@ func downloadPigzMust() {
 	httpDlToFileMust(uri, path, sha1)
 }
 
+func buildMakeLzsa() {
+	fmt.Printf("Building release version %s\n", sumatraVersion)
+	//verifyGitCleanMust()
+	verifyOnMasterBranchMust()
+
+	slnPath := filepath.Join(vsVer, "SumatraPDF.sln")
+
+	err := runMsbuild(true, slnPath, "/t:MakeLZSA", "/p:Configuration=Release;Platform=Win32", "/m")
+	fatalIfErr(err)
+	path := pj("rel", "MakeLZSA.exe")
+	signMust(path)
+	fmt.Printf("Built %s\n", path)
+}
+
 func buildRelease() {
 	var err error
 
@@ -383,18 +406,20 @@ func buildRelease() {
 	downloadPigzMust()
 
 	setBuildConfig(gitSha1, "")
-	err = runMsbuild(true, "vs2015\\SumatraPDF.sln", "/t:SumatraPDF;SumatraPDF-no-MUPDF;Uninstaller;test_util", "/p:Configuration=Release;Platform=Win32", "/m")
-	fataliferr(err)
+	slnPath := filepath.Join(vsVer, "SumatraPDF.sln")
+
+	err = runMsbuild(true, slnPath, "/t:SumatraPDF;SumatraPDF-no-MUPDF;Uninstaller;test_util", "/p:Configuration=Release;Platform=Win32", "/m")
+	fatalIfErr(err)
 	runTestUtilMust("rel")
 	signMust(pj("rel", "SumatraPDF.exe"))
 	signMust(pj("rel", "SumatraPDF-no-MUPDF.exe"))
 	signMust(pj("rel", "Uninstaller.exe"))
-	err = runMsbuild(true, "vs2015\\SumatraPDF.sln", "/t:Installer", "/p:Configuration=Release;Platform=Win32", "/m")
-	fataliferr(err)
+	err = runMsbuild(true, slnPath, "/t:Installer", "/p:Configuration=Release;Platform=Win32", "/m")
+	fatalIfErr(err)
 	signMust(pj("rel", "Installer.exe"))
 
-	err = runMsbuild(true, "vs2015\\SumatraPDF.sln", "/t:SumatraPDF;SumatraPDF-no-MUPDF;Uninstaller;test_util", "/p:Configuration=Release;Platform=x64", "/m")
-	fataliferr(err)
+	err = runMsbuild(true, slnPath, "/t:SumatraPDF;SumatraPDF-no-MUPDF;Uninstaller;test_util", "/p:Configuration=Release;Platform=x64", "/m")
+	fatalIfErr(err)
 
 	if isOS64Bit() {
 		runTestUtilMust("rel64")
@@ -402,8 +427,8 @@ func buildRelease() {
 	signMust(pj("rel64", "SumatraPDF.exe"))
 	signMust(pj("rel64", "SumatraPDF-no-MUPDF.exe"))
 	signMust(pj("rel64", "Uninstaller.exe"))
-	err = runMsbuild(true, "vs2015\\SumatraPDF.sln", "/t:Installer", "/p:Configuration=Release;Platform=x64", "/m")
-	fataliferr(err)
+	err = runMsbuild(true, slnPath, "/t:Installer", "/p:Configuration=Release;Platform=x64", "/m")
+	fatalIfErr(err)
 	signMust(pj("rel64", "Installer.exe"))
 
 	createExeZipMust("rel")
@@ -422,13 +447,14 @@ func buildRelease() {
 func buildAnalyze() {
 	fmt.Printf("Analyze build\n")
 	// I assume 64-bit build will catch more issues
-	out, _ := runMsbuildGetOutput(true, "vs2015\\SumatraPDF.sln", "/t:Installer", "/p:Configuration=ReleasePrefast;Platform=x64", "/m")
+	slnPath := filepath.Join(vsVer, "SumatraPDF.sln")
+	out, _ := runMsbuildGetOutput(true, slnPath, "/t:Installer", "/p:Configuration=ReleasePrefast;Platform=x64", "/m")
 
 	if true {
 		err2 := ioutil.WriteFile("analyze-output.txt", out, 0644)
-		fataliferr(err2)
+		fatalIfErr(err2)
 	}
-	//fataliferr(err)
+	//fatalIfErr(err)
 
 	parseAnalyzeOutput(out)
 }
@@ -436,15 +462,16 @@ func buildAnalyze() {
 func buildSmoke() {
 	fmt.Printf("Smoke build\n")
 	verifyTranslationsMust()
+	slnPath := filepath.Join(vsVer, "SumatraPDF.sln")
 
-	err := runMsbuild(true, "vs2015\\SumatraPDF.sln", "/t:Installer;SumatraPDF;Uninstaller;test_util", "/p:Configuration=Release;Platform=Win32", "/m")
-	fataliferr(err)
+	err := runMsbuild(true, slnPath, "/t:Installer;SumatraPDF;Uninstaller;test_util", "/p:Configuration=Release;Platform=Win32", "/m")
+	fatalIfErr(err)
 	path := pj("rel", "test_util.exe")
 	runExeMust(path)
-	err = runMsbuild(true, "vs2015\\SumatraPDF.sln", "/t:Installer;SumatraPDF;Uninstaller;test_util", "/p:Configuration=Release;Platform=x64", "/m")
-	fataliferr(err)
-	err = runMsbuild(true, "vs2015\\SumatraPDF.sln", "/t:Installer;SumatraPDF;Uninstaller;test_util", "/p:Configuration=Debug;Platform=x64", "/m")
-	fataliferr(err)
+	err = runMsbuild(true, slnPath, "/t:Installer;SumatraPDF;Uninstaller;test_util", "/p:Configuration=Release;Platform=x64", "/m")
+	fatalIfErr(err)
+	err = runMsbuild(true, slnPath, "/t:Installer;SumatraPDF;Uninstaller;test_util", "/p:Configuration=Debug;Platform=x64", "/m")
+	fatalIfErr(err)
 }
 
 func manifestPath() string {
@@ -476,7 +503,7 @@ func createManifestMust() {
 	}
 	s := strings.Join(lines, "\n")
 	err := ioutil.WriteFile(manifestPath(), []byte(s), 0644)
-	fataliferr(err)
+	fatalIfErr(err)
 }
 
 // http://zabkat.com/blog/code-signing-sha1-armageddon.htm
@@ -502,20 +529,20 @@ func signMust(path string) {
 		fileCopyMust(certDest, certSrc)
 	}
 	// sign with sha1 for pre-win-7
-	cmd := getCmdInEnv(getEnvForVS(), "signtool.exe", "sign", "/t", "http://timestamp.verisign.com/scripts/timstamp.dll",
+	cmd := exec.Command(signtoolPath, "sign", "/t", "http://timestamp.verisign.com/scripts/timstamp.dll",
 		"/du", "http://www.sumatrapdfreader.org", "/f", "cert.pfx",
 		"/p", certPwd, fileName)
 	cmd.Dir = fileDir
 	_, err := runCmdLogged(cmd, true)
-	fataliferr(err)
+	fatalIfErr(err)
 
 	// double-sign with sha2 for win7+ ater Jan 2016
-	cmd = getCmdInEnv(getEnvForVS(), "signtool.exe", "sign", "/fd", "sha256", "/tr", "http://timestamp.comodoca.com/rfc3161",
+	cmd = exec.Command(signtoolPath, "sign", "/fd", "sha256", "/tr", "http://timestamp.comodoca.com/rfc3161",
 		"/td", "sha256", "/du", "http://www.sumatrapdfreader.org", "/f", "cert.pfx",
 		"/p", certPwd, "/as", fileName)
 	cmd.Dir = fileDir
 	_, err = runCmdLogged(cmd, true)
-	fataliferr(err)
+	fatalIfErr(err)
 }
 
 // sumatrapdf/sumatralatest.js
@@ -584,7 +611,7 @@ var (
 )
 
 func compilePreRelNameRegexpsMust() {
-	fatalif(preRelNameRegexps != nil, "preRelNameRegexps != nil")
+	fatalIf(preRelNameRegexps != nil, "preRelNameRegexps != nil")
 	for _, s := range regexps {
 		r := regexp.MustCompile(s)
 		preRelNameRegexps = append(preRelNameRegexps, r)
@@ -603,7 +630,7 @@ func preRelFileVer(name string) string {
 
 func addToFilesForVer(path, name, verStr string, files []*FilesForVer) []*FilesForVer {
 	ver, err := strconv.Atoi(verStr)
-	fataliferr(err)
+	fatalIfErr(err)
 	for _, fi := range files {
 		if fi.Version == ver {
 			fi.Names = append(fi.Names, name)
@@ -636,12 +663,12 @@ func (s ByVerFilesForVer) Less(i, j int) bool {
 
 // list is sorted by Version, biggest first, to make it easy to delete oldest
 func s3ListPreReleaseFilesMust(dbg bool) []*FilesForVer {
-	fatalif(preRelNameRegexps == nil, "preRelNameRegexps == nil")
+	fatalIf(preRelNameRegexps == nil, "preRelNameRegexps == nil")
 	var res []*FilesForVer
 	bucket := s3GetBucket()
 	resp, err := bucket.List(s3PreRelDir, "", "", maxS3Results)
-	fataliferr(err)
-	fatalif(resp.IsTruncated, "truncated response! implement reading all the files\n")
+	fatalIfErr(err)
+	fatalIf(resp.IsTruncated, "truncated response! implement reading all the files\n")
 	if dbg {
 		fmt.Printf("%d files\n", len(resp.Contents))
 	}
@@ -718,7 +745,7 @@ func s3UploadPreReleaseMust(ver string) {
 		"SumatraPDF.pdb.lzsa", fmt.Sprintf("%s.pdb.lzsa", prefix),
 	}
 	err := s3UploadFiles(s3PreRelDir, "rel", files)
-	fataliferr(err)
+	fatalIfErr(err)
 
 	prefix = fmt.Sprintf("SumatraPDF-prerelease-%s-64", ver)
 	files = []string{
@@ -728,25 +755,25 @@ func s3UploadPreReleaseMust(ver string) {
 		"SumatraPDF.pdb.lzsa", fmt.Sprintf("%s.pdb.lzsa", prefix),
 	}
 	err = s3UploadFiles(s3PreRelDir, "rel64", files)
-	fataliferr(err)
+	fatalIfErr(err)
 
 	manifestLocalPath := pj("rel", "manifest.txt")
 	err = s3UploadFileReader(manifestRemotePath, manifestLocalPath, true)
-	fataliferr(err)
+	fatalIfErr(err)
 
 	s := createSumatraLatestJs()
 	err = s3UploadString("sumatrapdf/sumatralatest.js", s, true)
-	fataliferr(err)
+	fatalIfErr(err)
 
 	//sumatrapdf/sumpdf-prerelease-latest.txt
 	err = s3UploadString("sumatrapdf/sumpdf-prerelease-latest.txt", ver, true)
-	fataliferr(err)
+	fatalIfErr(err)
 
 	//sumatrapdf/sumpdf-prerelease-update.txt
 	//don't set a Stable version for pre-release builds
 	s = fmt.Sprintf("[SumatraPDF]\nLatest %s\n", ver)
 	err = s3UploadString("sumatrapdf/sumpdf-prerelease-update.txt", s, true)
-	fataliferr(err)
+	fatalIfErr(err)
 }
 
 /*
@@ -777,20 +804,20 @@ func verifyOnReleaseBranchMust() {
 	currBranch := getCurrentBranch(out)
 	pref := "rel"
 	suff := "working"
-	fatalif(!strings.HasPrefix(currBranch, pref), "running on branch '%s' which is not 'rel${ver}working' branch\n", currBranch)
-	fatalif(!strings.HasSuffix(currBranch, suff), "running on branch '%s' which is not 'rel${ver}working' branch\n", currBranch)
+	fatalIf(!strings.HasPrefix(currBranch, pref), "running on branch '%s' which is not 'rel${ver}working' branch\n", currBranch)
+	fatalIf(!strings.HasSuffix(currBranch, suff), "running on branch '%s' which is not 'rel${ver}working' branch\n", currBranch)
 
 	ver := currBranch[len(pref):]
 	ver = ver[:len(ver)-len(suff)]
 
-	fatalif(!strings.HasPrefix(sumatraVersion, ver), "version mismatch, sumatra: '%s', branch: '%s'\n", sumatraVersion, ver)
+	fatalIf(!strings.HasPrefix(sumatraVersion, ver), "version mismatch, sumatra: '%s', branch: '%s'\n", sumatraVersion, ver)
 }
 
 func verifyOnMasterBranchMust() {
 	// 'git branch' return branch name in format: '* master'
 	out := runExeMust("git", "branch")
 	currBranch := getCurrentBranch(out)
-	fatalif(currBranch != "master", "no on master branch (branch: '%s')\n", currBranch)
+	fatalIf(currBranch != "master", "no on master branch (branch: '%s')\n", currBranch)
 }
 
 // upload as:
@@ -811,7 +838,7 @@ func s3UploadReleaseMust(ver string) {
 		"SumatraPDF.pdb.lzsa", fmt.Sprintf("%s.pdb.lzsa", prefix),
 	}
 	err := s3UploadFiles(s3RelDir, "rel", files)
-	fataliferr(err)
+	fatalIfErr(err)
 
 	prefix = fmt.Sprintf("SumatraPDF-%s-64", ver)
 	files = []string{
@@ -822,12 +849,12 @@ func s3UploadReleaseMust(ver string) {
 		"SumatraPDF.pdb.lzsa", fmt.Sprintf("%s.pdb.lzsa", prefix),
 	}
 	err = s3UploadFiles(s3RelDir, "rel64", files)
-	fataliferr(err)
+	fatalIfErr(err)
 
 	// upload manifest last
 	manifestLocalPath := pj("rel", "manifest.txt")
 	err = s3UploadFileReader(manifestRemotePath, manifestLocalPath, true)
-	fataliferr(err)
+	fatalIfErr(err)
 
 	// Note: not uploading auto-update version info. We update it separately,
 	// a week or so after build is released, so that if there are serious issues,
@@ -863,19 +890,19 @@ func translationsPath() string {
 func translationsSha1HexMust(d []byte) string {
 	lines := toTrimmedLines(d)
 	sha1 := lines[1]
-	fatalif(len(sha1) != 40, "lastTranslationsSha1HexMust: '%s' doesn't look like sha1", sha1)
+	fatalIf(len(sha1) != 40, "lastTranslationsSha1HexMust: '%s' doesn't look like sha1", sha1)
 	return sha1
 }
 
 func lastTranslationsSha1HexMust() string {
 	d, err := ioutil.ReadFile(translationsPath())
-	fataliferr(err)
+	fatalIfErr(err)
 	return translationsSha1HexMust(d)
 }
 
 func saveTranslationsMust(d []byte) {
 	err := ioutil.WriteFile(translationsPath(), d, 0644)
-	fataliferr(err)
+	fatalIfErr(err)
 }
 
 func verifyTranslationsMust() {
@@ -883,7 +910,7 @@ func verifyTranslationsMust() {
 	url := fmt.Sprintf("http://www.apptranslator.org/dltrans?app=SumatraPDF&sha1=%s", sha1)
 	d := httpDlMust(url)
 	lines := toTrimmedLines(d)
-	fatalif(lines[1] != "No change", "translations changed, run python scripts/trans_download.py\n")
+	fatalIf(lines[1] != "No change", "translations changed, run python scripts/trans_download.py\n")
 }
 
 func testS3Upload() {
@@ -910,13 +937,27 @@ func init() {
 	compilePreRelNameRegexpsMust()
 }
 
+func testVS2017() {
+	detectVisualStudio()
+
+	cmd := exec.Command(msbuildPath, `vs2017\SumatraPDF.sln`)
+	cmd.Env = envForVS
+	_, err := runCmd(cmd, true)
+	fatalIfErr(err)
+}
+
 func main() {
 	//testBuildLzsa()
 	//testS3Upload()
 
 	if false {
+		testVS2017()
+		os.Exit(0)
+	}
+
+	if false {
 		err := os.Chdir(pj("..", "sumatrapdf-3.1"))
-		fataliferr(err)
+		fatalIfErr(err)
 	}
 
 	if false {
@@ -935,9 +976,16 @@ func main() {
 	os.Remove(logFileName)
 	verifyStartedInRightDirectoryMust()
 	detectVersions()
+	detectVisualStudio()
+
 	clean()
 	if flgRelease || flgPreRelease {
 		verifyHasReleaseSecretsMust()
+	}
+	if flgBuildMakeLzsa {
+		buildMakeLzsa()
+		finalizeThings2()
+		return
 	}
 	if flgRelease {
 		buildRelease()

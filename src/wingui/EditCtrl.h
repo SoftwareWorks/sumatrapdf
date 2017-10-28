@@ -1,36 +1,32 @@
-
 struct EditCtrl;
 
-typedef std::function<LRESULT(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp, bool& discardMsg)>
-    MsgFilter;
+typedef std::function<LRESULT(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp, bool& discardMsg)> MsgFilter;
 typedef std::function<void(EditCtrl*)> EditCtrlCb;
 
 // pass to SetColor() function to indicate this color should not change
 #define NO_CHANGE (COLORREF)(-2) // -1 is taken by NO_COLOR in windows headers
 
 struct EditCtrl {
-    // creation parameters. must be set before CreateEditWnd() call
+    // creation parameters. must be set before CreateEditCtrl() call
     HWND parent;
     RECT initialPos;
     DWORD dwStyle;
     DWORD dwExStyle;
 
-    // private
-    int ncDx;
-    int ncDy;
-    bool hasBorder;
+    // this data can be set directly
+    MsgFilter preFilter; // called at start of windows proc to allow intercepting commands
+    EditCtrlCb onTextChanged;
 
-    // public
-    HWND hwnd;
-
-    // this data should be set via corresponding API call
+    // set those via SetColors() to keep bgBrush in sync with bgCol
     HBRUSH bgBrush;
     COLORREF bgCol;
     COLORREF txtCol;
 
-    // this data can be set directly
-    MsgFilter preFilter; // called at start of windows proc to
-    EditCtrlCb onTextChanged;
+    // private
+    HWND hwnd;
+    int ncDx;
+    int ncDy;
+    bool hasBorder;
 };
 
 /* Creation sequence:

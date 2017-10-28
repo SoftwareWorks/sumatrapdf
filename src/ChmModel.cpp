@@ -53,7 +53,7 @@ public:
 };
 
 class ChmNamedDest : public ChmTocItem {
-    ScopedMem<WCHAR> myUrl;
+    AutoFreeW myUrl;
 
 public:
     ChmNamedDest(const WCHAR *url, int pageNo) :
@@ -182,7 +182,7 @@ void ChmModel::DisplayPage(const WCHAR *pageUrl)
         return;
     }
 
-    int pageNo = pages.Find(ScopedMem<WCHAR>(url::GetFullPath(pageUrl))) + 1;
+    int pageNo = pages.Find(AutoFreeW(url::GetFullPath(pageUrl))) + 1;
     if (pageNo)
         currentPageNo = pageNo;
 
@@ -206,7 +206,7 @@ void ChmModel::DisplayPage(const WCHAR *pageUrl)
 void ChmModel::ScrollToLink(PageDestination *link)
 {
     CrashIf(link->GetDestType() != Dest_ScrollTo);
-    ScopedMem<WCHAR> url(link->GetDestName());
+    AutoFreeW url(link->GetDestName());
     if (url)
         DisplayPage(url);
 }
@@ -274,7 +274,7 @@ class ChmTocBuilder : public EbookTocVisitor {
         if (!url || IsExternalUrl(url))
             return 0;
 
-        ScopedMem<WCHAR> plainUrl(url::GetFullPath(url));
+        AutoFreeW plainUrl(url::GetFullPath(url));
         int pageNo = (int)pages->Count() + 1;
         bool inserted = urlsSet.Insert(plainUrl, pageNo, &pageNo);
         if (inserted) {
@@ -307,7 +307,7 @@ public:
 
 bool ChmModel::Load(const WCHAR *fileName)
 {
-    this->fileName.Set(str::Dup(fileName));
+    this->fileName.SetCopy(fileName);
     doc = ChmDoc::CreateFromFile(fileName);
     if (!doc)
         return false;
@@ -352,13 +352,13 @@ void ChmModel::OnDocumentComplete(const WCHAR *url)
         return;
     if (*url == '/')
         ++url;
-    int pageNo = pages.Find(ScopedMem<WCHAR>(url::GetFullPath(url))) + 1;
+    int pageNo = pages.Find(AutoFreeW(url::GetFullPath(url))) + 1;
     if (pageNo) {
         currentPageNo = pageNo;
         // TODO: setting zoom before the first page is loaded seems not to work
         // (might be a regression from between r4593 and r4629)
         if (IsValidZoom(initZoom)) {
-            SetZoomVirtual(initZoom);
+            SetZoomVirtual(initZoom, nullptr);
             initZoom = INVALID_ZOOM;
         }
         if (cb)
@@ -391,11 +391,11 @@ bool ChmModel::OnBeforeNavigate(const WCHAR *url, bool newWindow)
 const unsigned char *ChmModel::GetDataForUrl(const WCHAR *url, size_t *len)
 {
     ScopedCritSec scope(&docAccess);
-    ScopedMem<WCHAR> plainUrl(url::GetFullPath(url));
+    AutoFreeW plainUrl(url::GetFullPath(url));
     ChmCacheEntry *e = FindDataForUrl(plainUrl);
     if (!e) {
         e = new ChmCacheEntry(Allocator::StrDup(&poolAlloc, plainUrl));
-        ScopedMem<char> urlUtf8(str::conv::ToUtf8(plainUrl));
+        AutoFree urlUtf8(str::conv::ToUtf8(plainUrl));
         e->data = doc->GetData(urlUtf8, &e->size);
         if (!e->data) {
             delete e;
@@ -423,8 +423,8 @@ void ChmModel::OnLButtonDown()
 // named destinations are either in-document URLs or Alias topic IDs
 PageDestination *ChmModel::GetNamedDest(const WCHAR *name)
 {
-    ScopedMem<WCHAR> plainUrl(url::GetFullPath(name));
-    ScopedMem<char> urlUtf8(str::conv::ToUtf8(plainUrl));
+    AutoFreeW plainUrl(url::GetFullPath(name));
+    AutoFree urlUtf8(str::conv::ToUtf8(plainUrl));
     if (!doc->HasData(urlUtf8)) {
         unsigned int topicID;
         if (str::Parse(name, L"%u%$", &topicID)) {
@@ -544,13 +544,13 @@ class ChmThumbnailTask : public HtmlWindowCallback
     HWND hwnd;
     HtmlWindow *hw;
     SizeI size;
-    std::function<void(RenderedBitmap*)> saveThumbnail;
-    ScopedMem<WCHAR> homeUrl;
+    onBitmapRenderedCb saveThumbnail;
+    AutoFreeW homeUrl;
     Vec<unsigned char *> data;
     CRITICAL_SECTION docAccess;
 
 public:
-    ChmThumbnailTask(ChmDoc *doc, HWND hwnd, SizeI size, const std::function<void(RenderedBitmap*)> saveThumbnail) :
+    ChmThumbnailTask(ChmDoc *doc, HWND hwnd, SizeI size, const onBitmapRenderedCb saveThumbnail) :
         doc(doc), hwnd(hwnd), hw(nullptr), size(size), saveThumbnail(saveThumbnail) {
         InitializeCriticalSection(&docAccess);
     }
@@ -569,7 +569,7 @@ public:
         this->hw = hw;
         homeUrl.Set(str::conv::FromAnsi(doc->GetHomePath()));
         if (*homeUrl == '/')
-            homeUrl.Set(str::Dup(homeUrl + 1));
+            homeUrl.SetCopy(homeUrl + 1);
         hw->NavigateToDataUrl(homeUrl);
     }
 
@@ -592,19 +592,19 @@ public:
     virtual const unsigned char *GetDataForUrl(const WCHAR *url, size_t *len) {
         UNUSED(len);
         ScopedCritSec scope(&docAccess);
-        ScopedMem<WCHAR> plainUrl(url::GetFullPath(url));
-        ScopedMem<char> urlUtf8(str::conv::ToUtf8(plainUrl));
+        AutoFreeW plainUrl(url::GetFullPath(url));
+        AutoFree urlUtf8(str::conv::ToUtf8(plainUrl));
         data.Append(doc->GetData(urlUtf8, len));
         return data.Last();
     }
-    virtual void DownloadData(const WCHAR *url, const unsigned char *data, size_t len) { 
+    virtual void DownloadData(const WCHAR *url, const unsigned char *data, size_t len) {
         UNUSED(url); UNUSED(data); UNUSED(len);
     }
 };
 
 // Create a thumbnail of chm document by loading it again and rendering
 // its first page to a hwnd specially created for it.
-void ChmModel::CreateThumbnail(SizeI size, const std::function<void(RenderedBitmap*)> &saveThumbnail)
+void ChmModel::CreateThumbnail(SizeI size, const onBitmapRenderedCb& saveThumbnail)
 {
     // doc and window will be destroyed by the callback once it's invoked
     ChmDoc *doc = ChmDoc::CreateFromFile(fileName);
