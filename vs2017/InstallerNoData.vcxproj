@@ -43,7 +43,7 @@
     <ConfigurationType>Application</ConfigurationType>
     <UseDebugLibraries>true</UseDebugLibraries>
     <CharacterSet>Unicode</CharacterSet>
-    <PlatformToolset>v141_xp</PlatformToolset>
+    <PlatformToolset>v141</PlatformToolset>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'" Label="Configuration">
     <ConfigurationType>Application</ConfigurationType>
@@ -56,21 +56,21 @@
     <ConfigurationType>Application</ConfigurationType>
     <UseDebugLibraries>false</UseDebugLibraries>
     <CharacterSet>Unicode</CharacterSet>
-    <PlatformToolset>v141_xp</PlatformToolset>
+    <PlatformToolset>v141</PlatformToolset>
     <WholeProgramOptimization>true</WholeProgramOptimization>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='ReleasePrefast|Win32'" Label="Configuration">
     <ConfigurationType>Application</ConfigurationType>
     <UseDebugLibraries>false</UseDebugLibraries>
     <CharacterSet>Unicode</CharacterSet>
-    <PlatformToolset>v140</PlatformToolset>
+    <PlatformToolset>v141</PlatformToolset>
     <WholeProgramOptimization>true</WholeProgramOptimization>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='ReleasePrefast|x64'" Label="Configuration">
     <ConfigurationType>Application</ConfigurationType>
     <UseDebugLibraries>false</UseDebugLibraries>
     <CharacterSet>Unicode</CharacterSet>
-    <PlatformToolset>v140</PlatformToolset>
+    <PlatformToolset>v141</PlatformToolset>
     <WholeProgramOptimization>true</WholeProgramOptimization>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
@@ -148,9 +148,9 @@
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <WarningLevel>Level4</WarningLevel>
       <TreatWarningAsError>true</TreatWarningAsError>
-      <DisableSpecificWarnings>4127;4324;4458;4800;4018;4100;4131;4244;4267;4302;4311;4312;4456;4457;4838;4702;4706;4996;%(DisableSpecificWarnings)</DisableSpecificWarnings>
+      <DisableSpecificWarnings>4127;4189;4324;4458;4800;4018;4100;4131;4244;4267;4302;4311;4312;4456;4457;4838;4702;4706;4996;%(DisableSpecificWarnings)</DisableSpecificWarnings>
       <PreprocessorDefinitions>WIN32;_WIN32;_CRT_SECURE_NO_WARNINGS;WINVER=0x0501;_WIN32_WINNT=0x0501;DEBUG;NO_LIBWEBP;NO_LIBMUPDF;HAVE_ZLIB;HAVE_BZIP2;HAVE_7Z;_HAS_EXCEPTIONS=0;%(PreprocessorDefinitions)</PreprocessorDefinitions>
-      <AdditionalIncludeDirectories>..\src;..\src\utils;..\ext\zlib;..\ext\unarr;..\ext\lzma\C;..\ext\bzip2;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>..\src;..\ext\zlib;..\ext\unarr;..\ext\lzma\C;..\ext\bzip2;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <DebugInformationFormat>EditAndContinue</DebugInformationFormat>
       <Optimization>Disabled</Optimization>
       <MinimalRebuild>false</MinimalRebuild>
@@ -163,15 +163,15 @@
     </ClCompile>
     <ResourceCompile>
       <PreprocessorDefinitions>WIN32;_WIN32;_CRT_SECURE_NO_WARNINGS;WINVER=0x0501;_WIN32_WINNT=0x0501;DEBUG;NO_LIBWEBP;NO_LIBMUPDF;HAVE_ZLIB;HAVE_BZIP2;HAVE_7Z;_HAS_EXCEPTIONS=0;%(PreprocessorDefinitions)</PreprocessorDefinitions>
-      <AdditionalIncludeDirectories>..\src;..\src\utils;..\ext\zlib;..\ext\unarr;..\ext\lzma\C;..\ext\bzip2;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>..\src;..\ext\zlib;..\ext\unarr;..\ext\lzma\C;..\ext\bzip2;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ResourceCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
-      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <FullProgramDatabaseFile>true</FullProgramDatabaseFile>
+      <GenerateDebugInformation>DebugFastLink</GenerateDebugInformation>
       <AdditionalDependencies>comctl32.lib;delayimp.lib;gdiplus.lib;shlwapi.lib;version.lib;wininet.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <EntryPointSymbol>WinMainCRTStartup</EntryPointSymbol>
-      <TreatLinkerWarningAsErrors>true</TreatLinkerWarningAsErrors>
-      <AdditionalOptions>/DELAYLOAD:comctl32.dll /DELAYLOAD:gdiplus.dll /DELAYLOAD:shlwapi.dll /DELAYLOAD:version.dll /DELAYLOAD:wininet.dll %(AdditionalOptions)</AdditionalOptions>
+      <AdditionalOptions>/DELAYLOAD:gdiplus.dll /DELAYLOAD:shlwapi.dll /DELAYLOAD:version.dll /DELAYLOAD:wininet.dll %(AdditionalOptions)</AdditionalOptions>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
@@ -179,9 +179,9 @@
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <WarningLevel>Level4</WarningLevel>
       <TreatWarningAsError>true</TreatWarningAsError>
-      <DisableSpecificWarnings>4127;4324;4458;4800;4018;4100;4131;4244;4267;4302;4311;4312;4456;4457;4838;4702;4706;4996;%(DisableSpecificWarnings)</DisableSpecificWarnings>
+      <DisableSpecificWarnings>4127;4189;4324;4458;4800;4018;4100;4131;4244;4267;4302;4311;4312;4456;4457;4838;4702;4706;4996;%(DisableSpecificWarnings)</DisableSpecificWarnings>
       <PreprocessorDefinitions>WIN32;_WIN32;_CRT_SECURE_NO_WARNINGS;WINVER=0x0501;_WIN32_WINNT=0x0501;DEBUG;NO_LIBWEBP;NO_LIBMUPDF;HAVE_ZLIB;HAVE_BZIP2;HAVE_7Z;_HAS_EXCEPTIONS=0;%(PreprocessorDefinitions)</PreprocessorDefinitions>
-      <AdditionalIncludeDirectories>..\src;..\src\utils;..\ext\zlib;..\ext\unarr;..\ext\lzma\C;..\ext\bzip2;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>..\src;..\ext\zlib;..\ext\unarr;..\ext\lzma\C;..\ext\bzip2;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <DebugInformationFormat>EditAndContinue</DebugInformationFormat>
       <Optimization>Disabled</Optimization>
       <MinimalRebuild>false</MinimalRebuild>
@@ -192,16 +192,16 @@
       <LanguageStandard>stdcpplatest</LanguageStandard>
     </ClCompile>
     <ResourceCompile>
-      <PreprocessorDefinitions>WIN32;_WIN32;_CRT_SECURE_NO_WARNINGS;WINVER=0x0501;_WIN32_WINNT=0x0501;DEBUG;NO_LIBWEBP;NO_LIBMUPDF;HAVE_ZLIB;HAVE_BZIP2;HAVE_7Z;_HAS_EXCEPTIONS=0;%(PreprocessorDefinitions)</PreprocessorDefinitions>
-      <AdditionalIncludeDirectories>..\src;..\src\utils;..\ext\zlib;..\ext\unarr;..\ext\lzma\C;..\ext\bzip2;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>WIN32;_WIN32;_CRT_SECURE_NO_WARNINGS;WINVER=0x0501;_WIN32_WINNT=0x0501;DEBUG;NO_LIBWEBP;NO_LIBMUPDF;HAVE_ZLIB;HAVE_BZIP2;HAVE_7Z;_WIN64;_HAS_EXCEPTIONS=0;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>..\src;..\ext\zlib;..\ext\unarr;..\ext\lzma\C;..\ext\bzip2;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ResourceCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
-      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <FullProgramDatabaseFile>true</FullProgramDatabaseFile>
+      <GenerateDebugInformation>DebugFastLink</GenerateDebugInformation>
       <AdditionalDependencies>comctl32.lib;delayimp.lib;gdiplus.lib;shlwapi.lib;version.lib;wininet.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <EntryPointSymbol>WinMainCRTStartup</EntryPointSymbol>
-      <TreatLinkerWarningAsErrors>true</TreatLinkerWarningAsErrors>
-      <AdditionalOptions>/DELAYLOAD:comctl32.dll /DELAYLOAD:gdiplus.dll /DELAYLOAD:shlwapi.dll /DELAYLOAD:version.dll /DELAYLOAD:wininet.dll %(AdditionalOptions)</AdditionalOptions>
+      <AdditionalOptions>/DELAYLOAD:gdiplus.dll /DELAYLOAD:shlwapi.dll /DELAYLOAD:version.dll /DELAYLOAD:wininet.dll %(AdditionalOptions)</AdditionalOptions>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
@@ -209,10 +209,9 @@
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <WarningLevel>Level4</WarningLevel>
       <TreatWarningAsError>true</TreatWarningAsError>
-      <DisableSpecificWarnings>4127;4324;4458;4800;4018;4100;4131;4244;4267;4302;4311;4312;4456;4457;4838;4702;4706;4996;%(DisableSpecificWarnings)</DisableSpecificWarnings>
+      <DisableSpecificWarnings>4127;4189;4324;4458;4800;4018;4100;4131;4244;4267;4302;4311;4312;4456;4457;4838;4702;4706;4996;%(DisableSpecificWarnings)</DisableSpecificWarnings>
       <PreprocessorDefinitions>WIN32;_WIN32;_CRT_SECURE_NO_WARNINGS;WINVER=0x0501;_WIN32_WINNT=0x0501;NDEBUG;NO_LIBWEBP;NO_LIBMUPDF;HAVE_ZLIB;HAVE_BZIP2;HAVE_7Z;_HAS_EXCEPTIONS=0;%(PreprocessorDefinitions)</PreprocessorDefinitions>
-      <AdditionalIncludeDirectories>..\src;..\src\utils;..\ext\zlib;..\ext\unarr;..\ext\lzma\C;..\ext\bzip2;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
-      <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
+      <AdditionalIncludeDirectories>..\src;..\ext\zlib;..\ext\unarr;..\ext\lzma\C;..\ext\bzip2;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <Optimization>Full</Optimization>
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
@@ -227,17 +226,16 @@
     </ClCompile>
     <ResourceCompile>
       <PreprocessorDefinitions>WIN32;_WIN32;_CRT_SECURE_NO_WARNINGS;WINVER=0x0501;_WIN32_WINNT=0x0501;NDEBUG;NO_LIBWEBP;NO_LIBMUPDF;HAVE_ZLIB;HAVE_BZIP2;HAVE_7Z;_HAS_EXCEPTIONS=0;%(PreprocessorDefinitions)</PreprocessorDefinitions>
-      <AdditionalIncludeDirectories>..\src;..\src\utils;..\ext\zlib;..\ext\unarr;..\ext\lzma\C;..\ext\bzip2;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>..\src;..\ext\zlib;..\ext\unarr;..\ext\lzma\C;..\ext\bzip2;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ResourceCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
-      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <GenerateDebugInformation>DebugFull</GenerateDebugInformation>
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <OptimizeReferences>true</OptimizeReferences>
       <AdditionalDependencies>comctl32.lib;delayimp.lib;gdiplus.lib;shlwapi.lib;version.lib;wininet.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <EntryPointSymbol>WinMainCRTStartup</EntryPointSymbol>
-      <TreatLinkerWarningAsErrors>true</TreatLinkerWarningAsErrors>
-      <AdditionalOptions>/DELAYLOAD:comctl32.dll /DELAYLOAD:gdiplus.dll /DELAYLOAD:shlwapi.dll /DELAYLOAD:version.dll /DELAYLOAD:wininet.dll %(AdditionalOptions)</AdditionalOptions>
+      <AdditionalOptions>/DELAYLOAD:gdiplus.dll /DELAYLOAD:shlwapi.dll /DELAYLOAD:version.dll /DELAYLOAD:wininet.dll %(AdditionalOptions)</AdditionalOptions>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
@@ -245,10 +243,9 @@
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <WarningLevel>Level4</WarningLevel>
       <TreatWarningAsError>true</TreatWarningAsError>
-      <DisableSpecificWarnings>4127;4324;4458;4800;4018;4100;4131;4244;4267;4302;4311;4312;4456;4457;4838;4702;4706;4996;%(DisableSpecificWarnings)</DisableSpecificWarnings>
+      <DisableSpecificWarnings>4127;4189;4324;4458;4800;4018;4100;4131;4244;4267;4302;4311;4312;4456;4457;4838;4702;4706;4996;%(DisableSpecificWarnings)</DisableSpecificWarnings>
       <PreprocessorDefinitions>WIN32;_WIN32;_CRT_SECURE_NO_WARNINGS;WINVER=0x0501;_WIN32_WINNT=0x0501;NDEBUG;NO_LIBWEBP;NO_LIBMUPDF;HAVE_ZLIB;HAVE_BZIP2;HAVE_7Z;_HAS_EXCEPTIONS=0;%(PreprocessorDefinitions)</PreprocessorDefinitions>
-      <AdditionalIncludeDirectories>..\src;..\src\utils;..\ext\zlib;..\ext\unarr;..\ext\lzma\C;..\ext\bzip2;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
-      <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
+      <AdditionalIncludeDirectories>..\src;..\ext\zlib;..\ext\unarr;..\ext\lzma\C;..\ext\bzip2;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <Optimization>Full</Optimization>
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
@@ -261,27 +258,26 @@
       <LanguageStandard>stdcpplatest</LanguageStandard>
     </ClCompile>
     <ResourceCompile>
-      <PreprocessorDefinitions>WIN32;_WIN32;_CRT_SECURE_NO_WARNINGS;WINVER=0x0501;_WIN32_WINNT=0x0501;NDEBUG;NO_LIBWEBP;NO_LIBMUPDF;HAVE_ZLIB;HAVE_BZIP2;HAVE_7Z;_HAS_EXCEPTIONS=0;%(PreprocessorDefinitions)</PreprocessorDefinitions>
-      <AdditionalIncludeDirectories>..\src;..\src\utils;..\ext\zlib;..\ext\unarr;..\ext\lzma\C;..\ext\bzip2;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>WIN32;_WIN32;_CRT_SECURE_NO_WARNINGS;WINVER=0x0501;_WIN32_WINNT=0x0501;NDEBUG;NO_LIBWEBP;NO_LIBMUPDF;HAVE_ZLIB;HAVE_BZIP2;HAVE_7Z;_WIN64;_HAS_EXCEPTIONS=0;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>..\src;..\ext\zlib;..\ext\unarr;..\ext\lzma\C;..\ext\bzip2;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ResourceCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
-      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <GenerateDebugInformation>DebugFull</GenerateDebugInformation>
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <OptimizeReferences>true</OptimizeReferences>
       <AdditionalDependencies>comctl32.lib;delayimp.lib;gdiplus.lib;shlwapi.lib;version.lib;wininet.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <EntryPointSymbol>WinMainCRTStartup</EntryPointSymbol>
-      <TreatLinkerWarningAsErrors>true</TreatLinkerWarningAsErrors>
-      <AdditionalOptions>/DELAYLOAD:comctl32.dll /DELAYLOAD:gdiplus.dll /DELAYLOAD:shlwapi.dll /DELAYLOAD:version.dll /DELAYLOAD:wininet.dll %(AdditionalOptions)</AdditionalOptions>
+      <AdditionalOptions>/DELAYLOAD:gdiplus.dll /DELAYLOAD:shlwapi.dll /DELAYLOAD:version.dll /DELAYLOAD:wininet.dll %(AdditionalOptions)</AdditionalOptions>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='ReleasePrefast|Win32'">
     <ClCompile>
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <WarningLevel>Level4</WarningLevel>
-      <DisableSpecificWarnings>4127;4324;4458;4800;28125;28252;28253;4018;4100;4131;4244;4267;4302;4311;4312;4456;4457;4838;4702;4706;4996;%(DisableSpecificWarnings)</DisableSpecificWarnings>
+      <DisableSpecificWarnings>4127;4189;4324;4458;4800;28125;28252;28253;4018;4100;4131;4244;4267;4302;4311;4312;4456;4457;4838;4702;4706;4996;%(DisableSpecificWarnings)</DisableSpecificWarnings>
       <PreprocessorDefinitions>WIN32;_WIN32;_CRT_SECURE_NO_WARNINGS;WINVER=0x0501;_WIN32_WINNT=0x0501;NDEBUG;NO_LIBWEBP;NO_LIBMUPDF;HAVE_ZLIB;HAVE_BZIP2;HAVE_7Z;_HAS_EXCEPTIONS=0;%(PreprocessorDefinitions)</PreprocessorDefinitions>
-      <AdditionalIncludeDirectories>..\src;..\src\utils;..\ext\zlib;..\ext\unarr;..\ext\lzma\C;..\ext\bzip2;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>..\src;..\ext\zlib;..\ext\unarr;..\ext\lzma\C;..\ext\bzip2;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
       <Optimization>Full</Optimization>
       <FunctionLevelLinking>true</FunctionLevelLinking>
@@ -297,25 +293,26 @@
     </ClCompile>
     <ResourceCompile>
       <PreprocessorDefinitions>WIN32;_WIN32;_CRT_SECURE_NO_WARNINGS;WINVER=0x0501;_WIN32_WINNT=0x0501;NDEBUG;NO_LIBWEBP;NO_LIBMUPDF;HAVE_ZLIB;HAVE_BZIP2;HAVE_7Z;_HAS_EXCEPTIONS=0;%(PreprocessorDefinitions)</PreprocessorDefinitions>
-      <AdditionalIncludeDirectories>..\src;..\src\utils;..\ext\zlib;..\ext\unarr;..\ext\lzma\C;..\ext\bzip2;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>..\src;..\ext\zlib;..\ext\unarr;..\ext\lzma\C;..\ext\bzip2;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ResourceCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
-      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <FullProgramDatabaseFile>true</FullProgramDatabaseFile>
+      <GenerateDebugInformation>DebugFastLink</GenerateDebugInformation>
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <OptimizeReferences>true</OptimizeReferences>
       <AdditionalDependencies>comctl32.lib;delayimp.lib;gdiplus.lib;shlwapi.lib;version.lib;wininet.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <EntryPointSymbol>WinMainCRTStartup</EntryPointSymbol>
-      <AdditionalOptions>/DELAYLOAD:comctl32.dll /DELAYLOAD:gdiplus.dll /DELAYLOAD:shlwapi.dll /DELAYLOAD:version.dll /DELAYLOAD:wininet.dll %(AdditionalOptions)</AdditionalOptions>
+      <AdditionalOptions>/DELAYLOAD:gdiplus.dll /DELAYLOAD:shlwapi.dll /DELAYLOAD:version.dll /DELAYLOAD:wininet.dll %(AdditionalOptions)</AdditionalOptions>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='ReleasePrefast|x64'">
     <ClCompile>
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <WarningLevel>Level4</WarningLevel>
-      <DisableSpecificWarnings>4127;4324;4458;4800;28125;28252;28253;4018;4100;4131;4244;4267;4302;4311;4312;4456;4457;4838;4702;4706;4996;%(DisableSpecificWarnings)</DisableSpecificWarnings>
+      <DisableSpecificWarnings>4127;4189;4324;4458;4800;28125;28252;28253;4018;4100;4131;4244;4267;4302;4311;4312;4456;4457;4838;4702;4706;4996;%(DisableSpecificWarnings)</DisableSpecificWarnings>
       <PreprocessorDefinitions>WIN32;_WIN32;_CRT_SECURE_NO_WARNINGS;WINVER=0x0501;_WIN32_WINNT=0x0501;NDEBUG;NO_LIBWEBP;NO_LIBMUPDF;HAVE_ZLIB;HAVE_BZIP2;HAVE_7Z;_HAS_EXCEPTIONS=0;%(PreprocessorDefinitions)</PreprocessorDefinitions>
-      <AdditionalIncludeDirectories>..\src;..\src\utils;..\ext\zlib;..\ext\unarr;..\ext\lzma\C;..\ext\bzip2;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>..\src;..\ext\zlib;..\ext\unarr;..\ext\lzma\C;..\ext\bzip2;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
       <Optimization>Full</Optimization>
       <FunctionLevelLinking>true</FunctionLevelLinking>
@@ -330,25 +327,35 @@
       <LanguageStandard>stdcpplatest</LanguageStandard>
     </ClCompile>
     <ResourceCompile>
-      <PreprocessorDefinitions>WIN32;_WIN32;_CRT_SECURE_NO_WARNINGS;WINVER=0x0501;_WIN32_WINNT=0x0501;NDEBUG;NO_LIBWEBP;NO_LIBMUPDF;HAVE_ZLIB;HAVE_BZIP2;HAVE_7Z;_HAS_EXCEPTIONS=0;%(PreprocessorDefinitions)</PreprocessorDefinitions>
-      <AdditionalIncludeDirectories>..\src;..\src\utils;..\ext\zlib;..\ext\unarr;..\ext\lzma\C;..\ext\bzip2;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>WIN32;_WIN32;_CRT_SECURE_NO_WARNINGS;WINVER=0x0501;_WIN32_WINNT=0x0501;NDEBUG;NO_LIBWEBP;NO_LIBMUPDF;HAVE_ZLIB;HAVE_BZIP2;HAVE_7Z;_WIN64;_HAS_EXCEPTIONS=0;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>..\src;..\ext\zlib;..\ext\unarr;..\ext\lzma\C;..\ext\bzip2;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ResourceCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
-      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <FullProgramDatabaseFile>true</FullProgramDatabaseFile>
+      <GenerateDebugInformation>DebugFastLink</GenerateDebugInformation>
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <OptimizeReferences>true</OptimizeReferences>
       <AdditionalDependencies>comctl32.lib;delayimp.lib;gdiplus.lib;shlwapi.lib;version.lib;wininet.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <EntryPointSymbol>WinMainCRTStartup</EntryPointSymbol>
-      <AdditionalOptions>/DELAYLOAD:comctl32.dll /DELAYLOAD:gdiplus.dll /DELAYLOAD:shlwapi.dll /DELAYLOAD:version.dll /DELAYLOAD:wininet.dll %(AdditionalOptions)</AdditionalOptions>
+      <AdditionalOptions>/DELAYLOAD:gdiplus.dll /DELAYLOAD:shlwapi.dll /DELAYLOAD:version.dll /DELAYLOAD:wininet.dll %(AdditionalOptions)</AdditionalOptions>
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClInclude Include="..\ext\unarr\_7z\_7z.h" />
+    <ClInclude Include="..\ext\unarr\common\allocator.h" />
+    <ClInclude Include="..\ext\unarr\common\unarr-imp.h" />
+    <ClInclude Include="..\ext\unarr\rar\lzss.h" />
+    <ClInclude Include="..\ext\unarr\rar\rar.h" />
+    <ClInclude Include="..\ext\unarr\rar\rarvm.h" />
+    <ClInclude Include="..\ext\unarr\tar\tar.h" />
+    <ClInclude Include="..\ext\unarr\zip\inflate.h" />
+    <ClInclude Include="..\ext\unarr\zip\zip.h" />
     <ClInclude Include="..\src\CrashHandler.h" />
     <ClInclude Include="..\src\Translations.h" />
     <ClInclude Include="..\src\installer\Installer.h" />
     <ClInclude Include="..\src\installer\Resource.h" />
-    <ClInclude Include="..\src\utils\ArchUtil.h" />
+    <ClInclude Include="..\src\utils\Archive.h" />
     <ClInclude Include="..\src\utils\BaseUtil.h" />
     <ClInclude Include="..\src\utils\BitReader.h" />
     <ClInclude Include="..\src\utils\ByteOrderDecoder.h" />
@@ -358,7 +365,6 @@
     <ClInclude Include="..\src\utils\Dict.h" />
     <ClInclude Include="..\src\utils\DirIter.h" />
     <ClInclude Include="..\src\utils\Dpi.h" />
-    <ClInclude Include="..\src\utils\FileTransactions.h" />
     <ClInclude Include="..\src\utils\FileUtil.h" />
     <ClInclude Include="..\src\utils\FzImgReader.h" />
     <ClInclude Include="..\src\utils\GdiPlusUtil.h" />
@@ -392,6 +398,7 @@
     <ClCompile Include="..\ext\unarr\_7z\_7z.c" />
     <ClCompile Include="..\ext\unarr\common\conv.c" />
     <ClCompile Include="..\ext\unarr\common\crc32.c" />
+    <ClCompile Include="..\ext\unarr\common\custalloc.c" />
     <ClCompile Include="..\ext\unarr\common\stream.c" />
     <ClCompile Include="..\ext\unarr\common\unarr.c" />
     <ClCompile Include="..\ext\unarr\lzmasdk\CpuArch.c" />
@@ -430,9 +437,10 @@
     <ClCompile Include="..\ext\zlib\zutil.c" />
     <ClCompile Include="..\src\CrashHandler.cpp" />
     <ClCompile Include="..\src\Translations.cpp" />
+    <ClCompile Include="..\src\installer\InstUninstCommon.cpp" />
     <ClCompile Include="..\src\installer\Installer.cpp" />
     <ClCompile Include="..\src\installer\Trans_installer_txt.cpp" />
-    <ClCompile Include="..\src\utils\ArchUtil.cpp" />
+    <ClCompile Include="..\src\utils\Archive.cpp" />
     <ClCompile Include="..\src\utils\BaseUtil.cpp" />
     <ClCompile Include="..\src\utils\BitReader.cpp" />
     <ClCompile Include="..\src\utils\ByteOrderDecoder.cpp" />
@@ -442,7 +450,6 @@
     <ClCompile Include="..\src\utils\Dict.cpp" />
     <ClCompile Include="..\src\utils\DirIter.cpp" />
     <ClCompile Include="..\src\utils\Dpi.cpp" />
-    <ClCompile Include="..\src\utils\FileTransactions.cpp" />
     <ClCompile Include="..\src\utils\FileUtil.cpp" />
     <ClCompile Include="..\src\utils\FzImgReader.cpp" />
     <ClCompile Include="..\src\utils\GdiPlusUtil.cpp" />
@@ -451,6 +458,7 @@
     <ClCompile Include="..\src\utils\StrFormat.cpp" />
     <ClCompile Include="..\src\utils\StrSlice.cpp" />
     <ClCompile Include="..\src\utils\StrUtil.cpp" />
+    <ClCompile Include="..\src\utils\StrUtil_win.cpp" />
     <ClCompile Include="..\src\utils\TgaReader.cpp" />
     <ClCompile Include="..\src\utils\ThreadUtil.cpp" />
     <ClCompile Include="..\src\utils\UITask.cpp" />

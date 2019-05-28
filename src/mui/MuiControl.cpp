@@ -1,30 +1,29 @@
-/* Copyright 2015 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2018 the SumatraPDF project authors (see AUTHORS file).
    License: Simplified BSD (see COPYING.BSD) */
 
-#include "BaseUtil.h"
-#include "HtmlParserLookup.h"
+#include "utils/BaseUtil.h"
+#include "utils/HtmlParserLookup.h"
 #include "Mui.h"
-#include "BitManip.h"
+#include "utils/BitManip.h"
 
 namespace mui {
 
 static HWND gHwndControlTooltip = nullptr;
 
-static void CreateInfotipForLink(HWND hwndParent, const WCHAR *url, RECT pos) {
+static void CreateInfotipForLink(HWND hwndParent, const WCHAR* url, RECT pos) {
     if (gHwndControlTooltip)
         return;
 
     HINSTANCE hinst = GetModuleHandle(nullptr);
     gHwndControlTooltip =
-        CreateWindowEx(WS_EX_TOPMOST, TOOLTIPS_CLASS, nullptr,
-                       WS_POPUP | TTS_NOPREFIX | TTS_ALWAYSTIP, CW_USEDEFAULT, CW_USEDEFAULT,
-                       CW_USEDEFAULT, CW_USEDEFAULT, hwndParent, nullptr, hinst, nullptr);
+        CreateWindowEx(WS_EX_TOPMOST, TOOLTIPS_CLASS, nullptr, WS_POPUP | TTS_NOPREFIX | TTS_ALWAYSTIP, CW_USEDEFAULT,
+                       CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, hwndParent, nullptr, hinst, nullptr);
 
-    TOOLINFO ti = { 0 };
+    TOOLINFO ti = {0};
     ti.cbSize = sizeof(ti);
     ti.hwnd = hwndParent;
     ti.uFlags = TTF_SUBCLASS;
-    ti.lpszText = (WCHAR *)url;
+    ti.lpszText = (WCHAR*)url;
     ti.rect = pos;
 
     SendMessage(gHwndControlTooltip, TTM_ADDTOOL, 0, (LPARAM)&ti);
@@ -34,7 +33,7 @@ static void ClearInfotip(HWND hwndParent) {
     if (!gHwndControlTooltip)
         return;
 
-    TOOLINFO ti = { 0 };
+    TOOLINFO ti = {0};
     ti.cbSize = sizeof(ti);
     ti.hwnd = hwndParent;
 
@@ -47,7 +46,7 @@ static void ClearInfotip(HWND hwndParent) {
 static_assert(Control::WantedInputBitLast < 16, "too many bits used for WantedInputBits");
 static_assert(Control::StateBitLast < 16, "too many bits used for StateBits");
 
-Control::Control(Control *newParent) {
+Control::Control(Control* newParent) {
     wantedInputBits = 0;
     stateBits = 0;
     zOrder = 0;
@@ -64,7 +63,7 @@ Control::Control(Control *newParent) {
         SetParent(newParent);
 }
 
-void Control::SetToolTip(const WCHAR *toolTip) {
+void Control::SetToolTip(const WCHAR* toolTip) {
     str::ReplacePtr(&this->toolTip, toolTip);
     if (nullptr == toolTip)
         wantedInputBits &= WantsMouseOverBit;
@@ -72,17 +71,19 @@ void Control::SetToolTip(const WCHAR *toolTip) {
         wantedInputBits |= WantsMouseOverBit;
 }
 
-void Control::SetNamedEventClick(const char *s) { str::ReplacePtr(&this->namedEventClick, s); }
+void Control::SetNamedEventClick(const char* s) {
+    str::ReplacePtr(&this->namedEventClick, s);
+}
 
 // note: all derived classes must call Control::NotifyMouseEnter()
 // from their own NotifyMouseEnter().
 void Control::NotifyMouseEnter() {
     // show url as a tooltip
-    HwndWrapper *hw = GetRootHwndWnd(this);
+    HwndWrapper* hw = GetRootHwndWnd(this);
     HWND hwndParent = hw->hwndParent;
     int x = 0, y = 0;
     MapMyToRootPos(x, y);
-    RECT pos = { x, y, 0, 0 };
+    RECT pos = {x, y, 0, 0};
     pos.right = x + this->pos.Width;
     pos.bottom = y + this->pos.Height;
     CreateInfotipForLink(hwndParent, toolTip, pos);
@@ -92,31 +93,45 @@ void Control::NotifyMouseEnter() {
 // from their own NotifyMouseLeave().
 void Control::NotifyMouseLeave() {
     // hide url tooltip
-    HwndWrapper *hw = GetRootHwndWnd(this);
+    HwndWrapper* hw = GetRootHwndWnd(this);
     HWND hwndParent = hw->hwndParent;
     ClearInfotip(hwndParent);
 }
 
 Control::~Control() {
-    delete layout;
-    DeleteVecMembers(children);
-    free(toolTip);
-    free((void *)namedEventClick);
+    delete this->layout;
+    DeleteVecMembers(this->children);
+    free(this->toolTip);
+    str::Free(this->namedEventClick);
 }
 
-void Control::SetParent(Control *newParent) { parent = newParent; }
+void Control::SetParent(Control* newParent) {
+    this->parent = newParent;
+}
 
-Control *Control::GetChild(size_t idx) const { return children.At(idx); }
+Control* Control::GetChild(size_t idx) const {
+    return this->children.at(idx);
+}
 
-size_t Control::GetChildCount() const { return children.Count(); }
+size_t Control::GetChildCount() const {
+    return children.size();
+}
 
-bool Control::WantsMouseClick() const { return bit::IsSet(wantedInputBits, WantsMouseClickBit); }
+bool Control::WantsMouseClick() const {
+    return bit::IsSet(wantedInputBits, WantsMouseClickBit);
+}
 
-bool Control::WantsMouseMove() const { return bit::IsSet(wantedInputBits, WantsMouseMoveBit); }
+bool Control::WantsMouseMove() const {
+    return bit::IsSet(wantedInputBits, WantsMouseMoveBit);
+}
 
-bool Control::IsMouseOver() const { return bit::IsSet(stateBits, MouseOverBit); }
+bool Control::IsMouseOver() const {
+    return bit::IsSet(stateBits, MouseOverBit);
+}
 
-bool Control::IsVisible() const { return !bit::IsSet(stateBits, IsHiddenBit); }
+bool Control::IsVisible() const {
+    return !bit::IsSet(stateBits, IsHiddenBit);
+}
 
 void Control::SetIsMouseOver(bool isOver) {
     if (isOver)
@@ -125,16 +140,16 @@ void Control::SetIsMouseOver(bool isOver) {
         bit::Clear(stateBits, MouseOverBit);
 }
 
-void Control::AddChild(Control *c, int pos) {
+void Control::AddChild(Control* c, int pos) {
     CrashIf(nullptr == c);
-    if ((pos < 0) || (pos >= (int)children.Count()))
+    if ((pos < 0) || (pos >= (int)children.size()))
         children.Append(c);
     else
         children.InsertAt(pos, c);
     c->SetParent(this);
 }
 
-void Control::AddChild(Control *c1, Control *c2, Control *c3) {
+void Control::AddChild(Control* c1, Control* c2, Control* c3) {
     AddChild(c1);
     AddChild(c2);
     if (c3)
@@ -145,15 +160,17 @@ Size Control::Measure(const Size availableSize) {
     if (layout) {
         return layout->Measure(availableSize);
     }
-    if (children.Count() == 1) {
-        ILayout *l = children.At(0);
+    if (children.size() == 1) {
+        ILayout* l = children.at(0);
         return l->Measure(availableSize);
     }
     desiredSize = Size();
     return desiredSize;
 }
 
-Size Control::DesiredSize() { return desiredSize; }
+Size Control::DesiredSize() {
+    return desiredSize;
+}
 
 void Control::MeasureChildren(Size availableSize) const {
     for (size_t i = 0; i < GetChildCount(); i++) {
@@ -167,8 +184,8 @@ void Control::Arrange(const Rect finalRect) {
         // might over-write position if our layout knows about us
         layout->Arrange(finalRect);
     } else {
-        if (children.Count() == 1) {
-            ILayout *l = children.At(0);
+        if (children.size() == 1) {
+            ILayout* l = children.at(0);
             l->Arrange(finalRect);
         }
     }
@@ -192,7 +209,7 @@ void Control::Hide() {
     RequestLayout(this);
 }
 
-void Control::SetPosition(const Rect &p) {
+void Control::SetPosition(const Rect& p) {
     if (p.Equals(pos))
         return; // perf optimization
     bool sizeChanged = (p.Width != pos.Width) || (p.Height != pos.Height);
@@ -208,15 +225,15 @@ void Control::SetPosition(const Rect &p) {
     pos = p;
     if (!sizeChanged)
         return;
-    HwndWrapper *hwnd = GetRootHwndWnd(this);
+    HwndWrapper* hwnd = GetRootHwndWnd(this);
     hwnd->evtMgr->NotifySizeChanged(this, p.Width, p.Height);
 }
 
-void Control::MapMyToRootPos(int &x, int &y) const {
+void Control::MapMyToRootPos(int& x, int& y) const {
     // calculate the offset of window w within its root window
     x += pos.X;
     y += pos.Y;
-    const Control *c = this;
+    const Control* c = this;
     if (c->parent)
         c = c->parent;
     while (c && !c->hwndParent) {
@@ -228,10 +245,10 @@ void Control::MapMyToRootPos(int &x, int &y) const {
 
 // convert position (x,y) in coordinates of root window
 // to position in this window's coordinates
-void Control::MapRootToMyPos(int &x, int &y) const {
+void Control::MapRootToMyPos(int& x, int& y) const {
     int offX = pos.X;
     int offY = pos.Y;
-    const Control *c = this;
+    const Control* c = this;
     while (c->parent) {
         c = c->parent;
         offX += c->pos.X;
@@ -244,7 +261,7 @@ void Control::MapRootToMyPos(int &x, int &y) const {
 // Requests the window to draw itself on a Graphics canvas.
 // offX and offY is a position of this window within
 // Graphics canvas (pos is relative to that offset)
-void Control::Paint(Graphics *gfx, int offX, int offY) {
+void Control::Paint(Graphics* gfx, int offX, int offY) {
     UNUSED(gfx);
     UNUSED(offX);
     UNUSED(offY);
@@ -252,9 +269,9 @@ void Control::Paint(Graphics *gfx, int offX, int offY) {
 }
 
 // returns true if the style of control has changed
-bool Control::SetStyle(Style *style) {
+bool Control::SetStyle(Style* style) {
     bool changed;
-    CachedStyle *currStyle = cachedStyle;
+    CachedStyle* currStyle = cachedStyle;
     cachedStyle = CacheStyle(style, &changed);
     if (currStyle != cachedStyle)
         changed = true;
@@ -262,4 +279,4 @@ bool Control::SetStyle(Style *style) {
         RequestRepaint(this);
     return changed;
 }
-}
+} // namespace mui

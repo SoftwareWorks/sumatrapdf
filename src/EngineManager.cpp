@@ -1,9 +1,9 @@
-/* Copyright 2015 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2018 the SumatraPDF project authors (see AUTHORS file).
    License: GPLv3 */
 
-// utils
-#include "BaseUtil.h"
-// rendering engines
+#include "utils/BaseUtil.h"
+#include "utils/ScopedWin.h"
+
 #include "BaseEngine.h"
 #include "DjVuEngine.h"
 #include "EbookEngine.h"

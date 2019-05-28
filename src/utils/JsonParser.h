@@ -1,4 +1,4 @@
-/* Copyright 2015 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2018 the SumatraPDF project authors (see AUTHORS file).
    License: Simplified BSD (see COPYING.BSD) */
 
 // simple push parser for JSON files (cf. http://www.json.org/ )
@@ -17,14 +17,14 @@ enum DataType { Type_String, Type_Number, Type_Bool, Type_Null };
 // 2. "/key[1]/name", "value", Type_String
 
 class ValueVisitor {
-public:
+  public:
     // return false to stop parsing
-    virtual bool Visit(const char *path, const char *value, DataType type) = 0;
-    virtual ~ValueVisitor() { }
+    virtual bool Visit(const char* path, const char* value, DataType type) = 0;
+    virtual ~ValueVisitor() {}
 };
 
 // data must be UTF-8 encoded and nullptr-terminated
 // returns false on error
-bool Parse(const char *data, ValueVisitor *visitor);
+bool Parse(const char* data, ValueVisitor* visitor);
 
-}
+} // namespace json

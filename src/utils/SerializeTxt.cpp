@@ -1,4 +1,4 @@
-/* Copyright 2015 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2018 the SumatraPDF project authors (see AUTHORS file).
    License: Simplified BSD (see COPYING.BSD) */
 
 #include "BaseUtil.h"
@@ -10,41 +10,39 @@ namespace sertxt {
 
 #define NL "\r\n"
 
-static const StructMetadata *GetStructDef(const FieldMetadata *fieldDef)
-{
+static const StructMetadata* GetStructDef(const FieldMetadata* fieldDef) {
     CrashIf(0 == fieldDef->defValOrDefinition);
-    return (const StructMetadata *)fieldDef->defValOrDefinition;
+    return (const StructMetadata*)fieldDef->defValOrDefinition;
 }
 
 // the assumption here is that the data was either built by Deserialize()
 // or was created by application code in a way that observes our rule: each
 // struct and string was separately allocated with malloc()
-void FreeStruct(uint8_t *structStart, const StructMetadata *def)
-{
+void FreeStruct(uint8_t* structStart, const StructMetadata* def) {
     if (!structStart)
         return;
     Type type;
-    const FieldMetadata *fieldDef = nullptr;
+    const FieldMetadata* fieldDef = nullptr;
     for (int i = 0; i < def->nFields; i++) {
         fieldDef = def->fields + i;
-        uint8_t *data = structStart + fieldDef->offset;
+        uint8_t* data = structStart + fieldDef->offset;
         type = (Type)(fieldDef->type & TYPE_MASK);
-        if (TYPE_STRUCT_PTR ==  type) {
-            uint8_t **p = (uint8_t**)data;
+        if (TYPE_STRUCT_PTR == type) {
+            uint8_t** p = (uint8_t**)data;
             FreeStruct(*p, GetStructDef(fieldDef));
             *p = nullptr;
         } else if (TYPE_ARRAY == type) {
-            Vec<uint8_t*> **vecPtr = (Vec<uint8_t*> **)data;
-            Vec<uint8_t*> *vec = *vecPtr;
+            Vec<uint8_t*>** vecPtr = (Vec<uint8_t*>**)data;
+            Vec<uint8_t*>* vec = *vecPtr;
             CrashIf(!vec);
-            for (size_t j = 0; j < vec->Count(); j++) {
-                FreeStruct(vec->At(j), GetStructDef(fieldDef));
+            for (size_t j = 0; j < vec->size(); j++) {
+                FreeStruct(vec->at(j), GetStructDef(fieldDef));
             }
             delete vec;
             *vecPtr = nullptr;
         } else if ((TYPE_STR == type) || (TYPE_WSTR == type)) {
-            char **sp = (char**)data;
-            char *s = *sp;
+            char** sp = (char**)data;
+            char* s = *sp;
             free(s);
             *sp = nullptr;
         }
@@ -52,26 +50,20 @@ void FreeStruct(uint8_t *structStart, const StructMetadata *def)
     free(structStart);
 }
 
-static bool IsSignedIntType(Type type)
-{
-    return ((TYPE_I16 == type) ||
-            (TYPE_I32 == type));
+static bool IsSignedIntType(Type type) {
+    return ((TYPE_I16 == type) || (TYPE_I32 == type));
 }
 
-static bool IsUnsignedIntType(Type type)
-{
-    return ((TYPE_U16 == type) ||
-            (TYPE_U32 == type) ||
-            (TYPE_U64 == type));
+static bool IsUnsignedIntType(Type type) {
+    return ((TYPE_U16 == type) || (TYPE_U32 == type) || (TYPE_U64 == type));
 }
 
-static bool WriteStructInt(uint8_t *p, Type type, int64_t val)
-{
+static bool WriteStructInt(uint8_t* p, Type type, int64_t val) {
     if (TYPE_I16 == type) {
         if (val > 0xffff)
             return false;
         int16_t v = (int16_t)val;
-        int16_t *vp = (int16_t*)p;
+        int16_t* vp = (int16_t*)p;
         *vp = v;
         return true;
     }
@@ -80,7 +72,7 @@ static bool WriteStructInt(uint8_t *p, Type type, int64_t val)
         if (val > 0xffffffff)
             return false;
         int32_t v = (int32_t)val;
-        int32_t *vp = (int32_t*)p;
+        int32_t* vp = (int32_t*)p;
         *vp = v;
         return true;
     }
@@ -88,22 +80,20 @@ static bool WriteStructInt(uint8_t *p, Type type, int64_t val)
     return false;
 }
 
-static void WriteStructBool(uint8_t *p, bool val)
-{
-    bool *bp = (bool*)p;
+static void WriteStructBool(uint8_t* p, bool val) {
+    bool* bp = (bool*)p;
     if (val)
         *bp = true;
     else
         *bp = false;
 }
 
-static bool WriteStructUInt(uint8_t *p, Type type, uint64_t val)
-{
+static bool WriteStructUInt(uint8_t* p, Type type, uint64_t val) {
     if (TYPE_U16 == type) {
         if (val > 0xffff)
             return false;
         uint16_t v = (uint16_t)val;
-        uint16_t *vp = (uint16_t*)p;
+        uint16_t* vp = (uint16_t*)p;
         *vp = v;
         return true;
     }
@@ -112,13 +102,13 @@ static bool WriteStructUInt(uint8_t *p, Type type, uint64_t val)
         if (val > 0xffffffff)
             return false;
         uint32_t v = (uint32_t)val;
-        uint32_t *vp = (uint32_t*)p;
+        uint32_t* vp = (uint32_t*)p;
         *vp = v;
         return true;
     }
 
     if (TYPE_U64 == type) {
-        uint64_t *vp = (uint64_t*)p;
+        uint64_t* vp = (uint64_t*)p;
         *vp = val;
         return true;
     }
@@ -127,89 +117,79 @@ static bool WriteStructUInt(uint8_t *p, Type type, uint64_t val)
     return false;
 }
 
-static void WriteStructPtrVal(uint8_t *p, void *val)
-{
-    void **pp = (void**)p;
+static void WriteStructPtrVal(uint8_t* p, void* val) {
+    void** pp = (void**)p;
     *pp = val;
 }
 
-static void WriteStructStr(uint8_t *p, char *s)
-{
-    char **sp = (char **)p;
+static void WriteStructStr(uint8_t* p, char* s) {
+    char** sp = (char**)p;
     *sp = s;
 }
 
-static void WriteStructWStr(uint8_t *p, WCHAR *s)
-{
-    WCHAR **sp = (WCHAR **)p;
+static void WriteStructWStr(uint8_t* p, WCHAR* s) {
+    WCHAR** sp = (WCHAR**)p;
     *sp = s;
 }
 
-static void WriteStructFloat(uint8_t *p, float f)
-{
-    float *fp = (float*)p;
+static void WriteStructFloat(uint8_t* p, float f) {
+    float* fp = (float*)p;
     *fp = f;
 }
 
-static bool ReadStructBool(const uint8_t *p)
-{
-    bool *bp = (bool*)p;
+static bool ReadStructBool(const uint8_t* p) {
+    bool* bp = (bool*)p;
     return *bp;
 }
 
-static int64_t ReadStructInt(const uint8_t *p, Type type)
-{
+static int64_t ReadStructInt(const uint8_t* p, Type type) {
     if (TYPE_I16 == type) {
-        int16_t *vp = (int16_t*)p;
+        int16_t* vp = (int16_t*)p;
         return (int64_t)*vp;
     }
     if (TYPE_I32 == type) {
-        int32_t *vp = (int32_t*)p;
+        int32_t* vp = (int32_t*)p;
         return (int64_t)*vp;
     }
     CrashIf(true);
     return 0;
 }
 
-static uint64_t ReadStructUInt(const uint8_t *p, Type type)
-{
+static uint64_t ReadStructUInt(const uint8_t* p, Type type) {
     if (TYPE_U16 == type) {
-        uint16_t *vp = (uint16_t*)p;
+        uint16_t* vp = (uint16_t*)p;
         return (uint64_t)*vp;
     }
     if ((TYPE_U32 == type) || (TYPE_COLOR == type)) {
-        uint32_t *vp = (uint32_t*)p;
+        uint32_t* vp = (uint32_t*)p;
         return (uint64_t)*vp;
     }
     if (TYPE_U64 == type) {
-        uint64_t *vp = (uint64_t*)p;
+        uint64_t* vp = (uint64_t*)p;
         return *vp;
     }
     CrashIf(true);
     return 0;
 }
 
-static float ReadStructFloat(const uint8_t *p)
-{
-    float *fp = (float*)p;
+static float ReadStructFloat(const uint8_t* p) {
+    float* fp = (float*)p;
     return *fp;
 }
 
-static void *ReadStructPtr(const uint8_t *p)
-{
-    void **pp = (void**)p;
+static void* ReadStructPtr(const uint8_t* p) {
+    void** pp = (void**)p;
     return *pp;
 }
 
 class DecodeState {
-public:
+  public:
     // data being decoded
-    TxtParser       parser;
+    TxtParser parser;
     DecodeState() {}
 };
 
-static bool ParseUInt(char *s, char *e, uint64_t *nOut)
-{
+static bool ParseUInt(char* s, char* e, uint64_t* nOut) {
     str::TrimWsEnd(s, e);
     int d;
     uint64_t n = 0;
@@ -231,8 +211,7 @@ static bool ParseUInt(char *s, char *e, uint64_t *nOut)
     return true;
 }
 
-static bool ParseInt(char *s, char *e, int64_t *iOut)
-{
+static bool ParseInt(char* s, char* e, int64_t* iOut) {
     if (s >= e)
         return false;
 
@@ -255,8 +234,7 @@ static bool ParseInt(char *s, char *e, int64_t *iOut)
     return true;
 }
 
-static bool ParseColor(char *s, char *e, COLORREF *colOut)
-{
+static bool ParseColor(char* s, char* e, COLORREF* colOut) {
     str::TrimWsEnd(s, e);
     *e = 0;
     int a, r, g, b;
@@ -266,7 +244,7 @@ static bool ParseColor(char *s, char *e, COLORREF *colOut)
             return false;
         }
     }
-    COLORREF col =  RGB(r, g, b);
+    COLORREF col = RGB(r, g, b);
     COLORREF alpha = (COLORREF)a;
     alpha = alpha << 24;
     col = col | alpha;
@@ -274,8 +252,7 @@ static bool ParseColor(char *s, char *e, COLORREF *colOut)
     return true;
 }
 
-static bool ParseBool(char *s, char *e, bool *bOut)
-{
+static bool ParseBool(char* s, char* e, bool* bOut) {
     str::TrimWsEnd(s, e);
     size_t len = e - s;
     if (4 == len && str::EqNI(s, "true", 4)) {
@@ -300,44 +277,41 @@ static bool ParseBool(char *s, char *e, bool *bOut)
     return false;
 }
 
-static bool ParseFloat(char *s, char *e, float *f)
-{
-    char *end = e;
+static bool ParseFloat(char* s, char* e, float* f) {
+    char* end = e;
     *f = (float)strtod(s, &end);
     return true;
 }
 
-static uint8_t* DeserializeRec(DecodeState& ds, TxtNode *firstNode, const StructMetadata *def);
+static uint8_t* DeserializeRec(DecodeState& ds, TxtNode* firstNode, const StructMetadata* def);
 
-static TxtNode *FindNode(TxtNode *curr, const char *name, size_t nameLen)
-{
+static TxtNode* FindNode(TxtNode* curr, const char* name, size_t nameLen) {
     if (!curr)
         return nullptr;
 
-    char *nodeName;
+    char* nodeName;
     size_t nodeNameLen;
 
-    TxtNode *child;
-    TxtNode *found = nullptr;
-    for (size_t i = 0; i < curr->children->Count(); i++) {
-        child = curr->children->At(i);
-        if (TextNode == child->type || StructNode == child->type) {
+    TxtNode* found = nullptr;
+    for (TxtNode* child = curr->firstChild; child != nullptr; child = child->sibling) {
+        if (child->IsText() || child->IsStruct()) {
             nodeName = child->keyStart;
             nodeNameLen = child->keyEnd - nodeName;
             if (nameLen == nodeNameLen && str::EqNI(name, nodeName, nameLen))
                 return child;
         }
-        if (TextNode == child->type)
+        if (child->IsText()) {
             continue;
+        }
         found = FindNode(child, name, nameLen);
-        if (found)
+        if (found) {
             return found;
+        }
     }
     return nullptr;
 }
 
-static void WriteDefaultValue(uint8_t *structDataPtr, Type type)
-{
+static void WriteDefaultValue(uint8_t* structDataPtr, Type type) {
     // all other types have default value of 0, which we get for
     // free because the memory for struct is zero-allocated
     if (TYPE_FLOAT == type) {
@@ -345,40 +319,24 @@ static void WriteDefaultValue(uint8_t *structDataPtr, Type type)
     }
 }
 
-static void FreeTxtNode(TxtNode *node)
-{
-    if (node->children) {
-        for (size_t i = 0; i < node->children->Count(); i++) {
-            TxtNode *child = node->children->At(i);
-            CrashIf(TextNode != child->type);
-            delete child;
-        }
-    }
-    delete node->children;
-    delete node;
-}
-
-static TxtNode *StructNodeFromTextNode(DecodeState& ds, TxtNode *txtNode, const StructMetadata *structDef)
-{
-    UNUSED(ds);
-    CrashIf(TextNode != txtNode->type);
+static TxtNode* StructNodeFromTextNode(DecodeState& ds, TxtNode* txtNode, const StructMetadata* structDef) {
+    CrashIf(!txtNode->IsText());
     str::Slice slice(txtNode->valStart, txtNode->valEnd);
-    TxtNode *node = new TxtNode(StructNode);
-    node->children = new Vec<TxtNode*>();
+    TxtNode* node = ds.parser.AllocTxtNode(TxtNode::Type::Struct);
     uint16_t fieldNo = 0;
-    char *fieldName = (char*)structDef->fieldNames;
-    TxtNode *child;
+    char* fieldName = (char*)structDef->fieldNames;
+    TxtNode* child;
     for (;;) {
         slice.SkipWsUntilNewline();
         if (slice.Finished())
             goto Error;
-        child = new TxtNode(TextNode);
+        child = ds.parser.AllocTxtNode(TxtNode::Type::Text);
         child->valStart = slice.curr;
         slice.SkipNonWs();
         child->valEnd = slice.curr;
         child->keyStart = fieldName;
         child->keyEnd = fieldName + str::Len(fieldName);
-        node->children->Append(child);
+        node->AddChild(child);
         ++fieldNo;
         if (fieldNo == structDef->nFields)
             break;
@@ -386,37 +344,34 @@ static TxtNode *StructNodeFromTextNode(DecodeState& ds, TxtNode *txtNode, const 
     }
     return node;
 Error:
-    FreeTxtNode(node);
     return nullptr;
 }
 
-static uint8_t *DeserializeCompact(DecodeState& ds, TxtNode *node, const StructMetadata *structDef)
-{
-    CrashIf(TextNode != node->type);
-    TxtNode *structNode = StructNodeFromTextNode(ds, node, structDef);
-    if (!structNode)
+static uint8_t* DeserializeCompact(DecodeState& ds, TxtNode* node, const StructMetadata* structDef) {
+    CrashIf(!node->IsText());
+    TxtNode* structNode = StructNodeFromTextNode(ds, node, structDef);
+    if (!structNode) {
         return nullptr;
-    uint8_t *res = DeserializeRec(ds, structNode, structDef);
-    FreeTxtNode(structNode);
+    }
+    uint8_t* res = DeserializeRec(ds, structNode, structDef);
     return res;
 }
 
-static uint8_t *DecodeStruct(DecodeState& ds, const FieldMetadata *fieldDef, TxtNode *node, bool isCompact)
-{
-    uint8_t *d = nullptr;
-    if (isCompact && (TextNode == node->type)) {
+static uint8_t* DecodeStruct(DecodeState& ds, const FieldMetadata* fieldDef, TxtNode* node, bool isCompact) {
+    uint8_t* d = nullptr;
+    if (isCompact && node->IsText()) {
         d = DeserializeCompact(ds, node, GetStructDef(fieldDef));
     } else {
-        if (StructNode == node->type)
+        if (node->IsStruct())
             d = DeserializeRec(ds, node, GetStructDef(fieldDef));
     }
     return d;
 }
 
-static bool DecodeField(DecodeState& ds, TxtNode *firstNode, const char *fieldName, const FieldMetadata *fieldDef, uint8_t *structDataStart)
-{
+static bool DecodeField(DecodeState& ds, TxtNode* firstNode, const char* fieldName, const FieldMetadata* fieldDef,
+                        uint8_t* structDataStart) {
     Type type = fieldDef->type;
-    uint8_t *structDataPtr = structDataStart + fieldDef->offset;
+    uint8_t* structDataPtr = structDataStart + fieldDef->offset;
 
     if ((type & TYPE_NO_STORE_MASK) != 0) {
         WriteDefaultValue(structDataPtr, type);
@@ -429,88 +384,116 @@ static bool DecodeField(DecodeState& ds, TxtNode *firstNode, const char *fieldNa
     size_t fieldNameLen = str::Len(fieldName);
 
     // if the node doesn't exist in data, try to get it from default data
-    TxtNode *node = FindNode(firstNode, fieldName, fieldNameLen);
+    TxtNode* node = FindNode(firstNode, fieldName, fieldNameLen);
     if (!node) {
         WriteDefaultValue(structDataPtr, type);
         return true;
     }
     bool ok;
+
     if (TYPE_BOOL == type) {
         bool bVal;
         ok = ParseBool(node->valStart, node->valEnd, &bVal);
-        if (!ok)
-            return false;
-        WriteStructBool(structDataPtr, bVal);
-    } else if (TYPE_COLOR == type) {
+        if (ok) {
+            WriteStructBool(structDataPtr, bVal);
+        }
+        return ok;
+    }
+
+    // TODO: should we return ok instead of true in cases below?
+    if (TYPE_COLOR == type) {
         COLORREF val;
         ok = ParseColor(node->valStart, node->valEnd, &val);
-        if (ok)
+        if (ok) {
             WriteStructUInt(structDataPtr, TYPE_COLOR, val);
-    } else if (IsUnsignedIntType(type)) {
+        }
+        return true;
+    }
+
+    if (IsUnsignedIntType(type)) {
         uint64_t n;
         ok = ParseUInt(node->valStart, node->valEnd, &n);
-        if (ok)
+        if (ok) {
             ok = WriteStructUInt(structDataPtr, type, n);
-    } else if (IsSignedIntType(type)) {
+        }
+        return true;
+    }
+
+    if (IsSignedIntType(type)) {
         int64_t n;
         ok = ParseInt(node->valStart, node->valEnd, &n);
-        if (ok)
+        if (ok) {
             ok = WriteStructInt(structDataPtr, type, n);
-    } else if (TYPE_STRUCT_PTR == type) {
-        uint8_t *d = DecodeStruct(ds, fieldDef, node, isCompact);
-        if (d)
+        }
+        return true;
+    }
+
+    if (TYPE_STRUCT_PTR == type) {
+        uint8_t* d = DecodeStruct(ds, fieldDef, node, isCompact);
+        if (d) {
             WriteStructPtrVal(structDataPtr, d);
-    } else if (TYPE_STR == type) {
-        char *s = node->valStart;
+        }
+        return true;
+    }
+
+    if (TYPE_STR == type) {
+        char* s = node->valStart;
         size_t sLen = node->valEnd - s;
         if (s && (sLen > 0)) {
             // note: we don't free s because it's remembered in structDataPtr
             s = str::DupN(s, sLen);
             WriteStructStr(structDataPtr, s);
         }
-    } else if (TYPE_WSTR == type) {
-        char *s = node->valStart;
+        return true;
+    }
+
+    if (TYPE_WSTR == type) {
+        char* s = node->valStart;
         size_t sLen = node->valEnd - s;
         if (s && (sLen > 0)) {
             // note: we don't free ws because it's remembered in structDataPtr
-            WCHAR *ws = str::conv::FromUtf8(s);
+            WCHAR* ws = str::conv::FromUtf8(s);
             WriteStructWStr(structDataPtr, ws);
         }
-    }  else if (TYPE_FLOAT == type) {
+        return true;
+    }
+
+    if (TYPE_FLOAT == type) {
         float f;
         ok = ParseFloat(node->valStart, node->valEnd, &f);
         if (ok)
             WriteStructFloat(structDataPtr, f);
-    } else if (TYPE_ARRAY == type) {
-        if (StructNode != node->type)
+    }
+
+    if (TYPE_ARRAY == type) {
+        if (!node->IsStruct()) {
             return false;
-        Vec<uint8_t*> *vec = new Vec<uint8_t*>();
+        }
+        Vec<uint8_t*>* vec = new Vec<uint8_t*>();
         // we remember it right away, so that it gets freed in case of error
         WriteStructPtrVal(structDataPtr, (void*)vec);
-        TxtNode *child;
-        for (size_t i = 0; i < node->children->Count(); i++) {
-            child = node->children->At(i);
-            uint8_t *d = DecodeStruct(ds, fieldDef, child, isCompact);
-            if (d)
+        for (TxtNode* child = node->firstChild; child != nullptr; child = child->sibling) {
+            uint8_t* d = DecodeStruct(ds, fieldDef, child, isCompact);
+            if (d) {
                 vec->Append(d);
+            }
         }
-    } else {
-        CrashIf(true);
-        return false;
+        return true;
     }
-    return true;
+
+    CrashIf(true);
+    return false;
 }
 
-static uint8_t* DeserializeRec(DecodeState& ds, TxtNode *firstNode, const StructMetadata *def)
-{
+static uint8_t* DeserializeRec(DecodeState& ds, TxtNode* firstNode, const StructMetadata* def) {
     bool ok = true;
     if (!firstNode)
         return nullptr;
 
-    uint8_t *res = AllocArray<uint8_t>(def->size);
-    const StructMetadata **defPtr = (const StructMetadata**)res;
+    uint8_t* res = AllocArray<uint8_t>(def->size);
+    const StructMetadata** defPtr = (const StructMetadata**)res;
     *defPtr = def;
-    const char *fieldName = def->fieldNames;
+    const char* fieldName = def->fieldNames;
     for (int i = 0; i < def->nFields; i++) {
         ok = DecodeField(ds, firstNode, fieldName, def->fields + i, res);
         if (!ok)
@@ -523,38 +506,36 @@ Error:
     return nullptr;
 }
 
-uint8_t* Deserialize(struct TxtNode *root, const StructMetadata *def)
-{
+uint8_t* Deserialize(struct TxtNode* root, const StructMetadata* def) {
     DecodeState ds;
     return DeserializeRec(ds, root, def);
 }
 
-uint8_t* Deserialize(char *data, size_t dataSize, const StructMetadata *def)
-{
-    if (!data)
+uint8_t* Deserialize(const std::string_view str, const StructMetadata* def) {
+    if (!str.data()) {
         return nullptr;
+    }
 
     DecodeState ds;
-    ds.parser.SetToParse(data, dataSize);
+    ds.parser.SetToParse(str);
     bool ok = ParseTxt(ds.parser);
-    if (!ok)
+    if (!ok) {
         return nullptr;
+    }
 
-    return DeserializeRec(ds, ds.parser.nodes.At(0), def);
+    return DeserializeRec(ds, ds.parser.nodes.at(0), def);
 }
 
-static void AppendNest(str::Str<char>& s, int nest)
-{
+static void AppendNest(str::Str<char>& s, int nest) {
     while (nest > 0) {
         s.Append("  ");
         --nest;
     }
 }
 
-static void AppendVal(const char *val, char escapeChar, bool compact, str::Str<char>& res)
-{
-    const char *start = val;
-    const char *s = start;
+static void AppendVal(const char* val, char escapeChar, bool compact, str::Str<char>& res) {
+    const char* start = val;
+    const char* s = start;
     char escaped = 0;
     while (*s) {
         char c = *s++;
@@ -585,15 +566,15 @@ static void AppendVal(const char *val, char escapeChar, bool compact, str::Str<c
 }
 
 struct EncodeState {
-    str::Str<char>  res;
+    str::Str<char> res;
 
-    char            escapeChar;
+    char escapeChar;
 
     // nesting level for the currently serialized value
-    int             nest;
+    int nest;
 
     // is currently serialized structure in compact form
-    bool            compact;
+    bool compact;
 
     EncodeState() {
         escapeChar = SERIALIZE_ESCAPE_CHAR;
@@ -602,8 +583,7 @@ struct EncodeState {
     }
 };
 
-static void AppendKeyVal(EncodeState& es, const char *key, const char *val)
-{
+static void AppendKeyVal(EncodeState& es, const char* key, const char* val) {
     if (es.compact) {
         es.res.Append(" ");
     } else {
@@ -614,10 +594,10 @@ static void AppendKeyVal(EncodeState& es, const char *key, const char *val)
     AppendVal(val, es.escapeChar, es.compact, es.res);
 }
 
-void SerializeRec(EncodeState& es, const uint8_t *structStart, const StructMetadata *def);
+void SerializeRec(EncodeState& es, const uint8_t* structStart, const StructMetadata* def);
 
-static void SerializeField(EncodeState& es, const char *fieldName, const FieldMetadata *fieldDef, const uint8_t *structStart)
-{
+static void SerializeField(EncodeState& es, const char* fieldName, const FieldMetadata* fieldDef,
+                           const uint8_t* structStart) {
     str::Str<char> val;
     str::Str<char>& res = es.res;
 
@@ -631,7 +611,7 @@ static void SerializeField(EncodeState& es, const char *fieldName, const FieldMe
     bool isCompact = ((type & TYPE_STORE_COMPACT_MASK) != 0);
     type = (Type)(type & TYPE_MASK);
 
-    const uint8_t *data = structStart + fieldDef->offset;
+    const uint8_t* data = structStart + fieldDef->offset;
     if (TYPE_BOOL == type) {
         bool b = ReadStructBool(data);
         AppendKeyVal(es, fieldName, b ? "true" : "false");
@@ -649,12 +629,12 @@ static void SerializeField(EncodeState& es, const char *fieldName, const FieldMe
         AppendKeyVal(es, fieldName, val.Get());
     } else if (IsUnsignedIntType(type)) {
         uint64_t u = ReadStructUInt(data, type);
-        //val.AppendFmt("%" PRIu64, u);
+        // val.AppendFmt("%" PRIu64, u);
         val.AppendFmt("%I64u", u);
         AppendKeyVal(es, fieldName, val.Get());
     } else if (IsSignedIntType(type)) {
         int64_t i = ReadStructInt(data, type);
-        //val.AppendFmt("%" PRIi64, u);
+        // val.AppendFmt("%" PRIi64, u);
         val.AppendFmt("%I64d", i);
         AppendKeyVal(es, fieldName, val.Get());
     } else if (TYPE_FLOAT == type) {
@@ -662,14 +642,14 @@ static void SerializeField(EncodeState& es, const char *fieldName, const FieldMe
         val.AppendFmt("%g", f);
         AppendKeyVal(es, fieldName, val.Get());
     } else if (TYPE_STR == type) {
-        char *s = (char*)ReadStructPtr(data);
+        char* s = (char*)ReadStructPtr(data);
         if (s)
             AppendKeyVal(es, fieldName, s);
     } else if (TYPE_WSTR == type) {
-        WCHAR *s = (WCHAR*)ReadStructPtr(data);
+        WCHAR* s = (WCHAR*)ReadStructPtr(data);
         if (s) {
-            AutoFree val2(str::conv::ToUtf8(s));
-            AppendKeyVal(es, fieldName, val2);
+            OwnedData val2(str::conv::ToUtf8(s));
+            AppendKeyVal(es, fieldName, val2.Get());
         }
     } else if (TYPE_STRUCT_PTR == type) {
         AppendNest(res, es.nest);
@@ -678,7 +658,7 @@ static void SerializeField(EncodeState& es, const char *fieldName, const FieldMe
             res.Append(":");
         else
             res.Append(" [" NL);
-        const uint8_t *structStart2 = (const uint8_t *)ReadStructPtr(data);
+        const uint8_t* structStart2 = (const uint8_t*)ReadStructPtr(data);
         ++es.nest;
         // compact status only lives for one structure, so this is enough
         es.compact = isCompact;
@@ -695,12 +675,12 @@ static void SerializeField(EncodeState& es, const char *fieldName, const FieldMe
         AppendNest(res, es.nest);
         res.Append(fieldName);
         res.Append(" [" NL);
-        Vec<const uint8_t*> *vec = (Vec<const uint8_t*> *)ReadStructPtr(data);
+        Vec<const uint8_t*>* vec = (Vec<const uint8_t*>*)ReadStructPtr(data);
         ++es.nest;
-        for (size_t i = 0; vec && (i < vec->Count()); i++) {
+        for (size_t i = 0; vec && (i < vec->size()); i++) {
             AppendNest(res, es.nest);
             res.Append("[" NL);
-            const uint8_t *elData = vec->At(i);
+            const uint8_t* elData = vec->at(i);
             ++es.nest;
             SerializeRec(es, elData, GetStructDef(fieldDef));
             --es.nest;
@@ -715,27 +695,24 @@ static void SerializeField(EncodeState& es, const char *fieldName, const FieldMe
     }
 }
 
-void SerializeRec(EncodeState& es, const uint8_t *structStart, const StructMetadata *def)
-{
+void SerializeRec(EncodeState& es, const uint8_t* structStart, const StructMetadata* def) {
     if (!structStart)
         return;
-    const char *fieldName = def->fieldNames;
+    const char* fieldName = def->fieldNames;
     for (size_t i = 0; i < def->nFields; i++) {
-        const FieldMetadata *fieldDef = &def->fields[i];
+        const FieldMetadata* fieldDef = &def->fields[i];
         SerializeField(es, fieldName, fieldDef, structStart);
         seqstrings::SkipStr(fieldName);
     }
 }
 
-uint8_t *Serialize(const uint8_t *rootStruct, const StructMetadata *def, size_t *sizeOut)
-{
+OwnedData Serialize(const uint8_t* rootStruct, const StructMetadata* def) {
     EncodeState es;
     es.res.Append(UTF8_BOM "; see https://www.sumatrapdfreader.org/settings.html for documentation" NL);
     es.nest = 0;
     SerializeRec(es, rootStruct, def);
-    if (sizeOut)
-        *sizeOut = es.res.Size();
-    return (uint8_t *)es.res.StealData();
+    size_t size = es.res.size();
+    return {es.res.StealData(), size};
 }
 
 } // namespace sertxt

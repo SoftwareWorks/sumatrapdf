@@ -1,4 +1,4 @@
-/* Copyright 2015 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2018 the SumatraPDF project authors (see AUTHORS file).
    License: Simplified BSD (see COPYING.BSD) */
 
 // as little of mui as necessary to make ../EngineDump.cpp compile
@@ -10,30 +10,30 @@ void Initialize();
 void Destroy();
 
 struct CachedFont {
-    WCHAR *name;
+    WCHAR* name;
     float sizePt;
     Gdiplus::FontStyle style;
 
-    Gdiplus::Font *font;
+    Gdiplus::Font* font;
     // hFont is created out of font
     HFONT hFont;
 
     HFONT GetHFont();
     Gdiplus::FontStyle GetStyle() const { return style; }
     float GetSize() const { return sizePt; }
-    const WCHAR *GetName() const { return name; }
+    const WCHAR* GetName() const { return name; }
 
-    bool SameAs(const WCHAR *name, float sizePt, Gdiplus::FontStyle style) const {
+    bool SameAs(const WCHAR* name, float sizePt, Gdiplus::FontStyle style) const {
         return this->sizePt == sizePt && this->style == style && str::Eq(this->name, name);
     }
 };
 
-CachedFont *GetCachedFont(const WCHAR *name, float sizePt, Gdiplus::FontStyle style);
+CachedFont* GetCachedFont(const WCHAR* name, float sizePt, Gdiplus::FontStyle style);
 
-void InitGraphicsMode(Gdiplus::Graphics *g);
-Gdiplus::Graphics *AllocGraphicsForMeasureText();
-void FreeGraphicsForMeasureText(Gdiplus::Graphics *g);
-};
+void InitGraphicsMode(Gdiplus::Graphics* g);
+Gdiplus::Graphics* AllocGraphicsForMeasureText();
+void FreeGraphicsForMeasureText(Gdiplus::Graphics* g);
+}; // namespace mui
 
 class ScopedMiniMui {
   public:

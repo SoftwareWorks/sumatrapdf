@@ -4,42 +4,48 @@
 
 Remove-Item src\*.bak, src\*.tmp
 
-$files = "src\Caption.*",
-"src\Canvas.*",
-"src\Colors.*",
-"src\Doc.*",
-"src\EbookController.*",
-"src\EngineManager.*",
-"src\ExternalViewers.*",
-"src\Favorites.*",
-"src\Menu.*",
-"src\Notifications.*",
-"src\ParseCommandLine*",
-"src\Print*",
-"src\Search.*",
-"src\SumatraDialogs.*",
-"src\TabInfo.*",
-"src\Tabs.*",
-"src\Theme.*",
-"src\Tests*",
-"src\TextSearch*",
-"src\mui\SvgPath.*",
-"src\utils\FileWatcher.*",
-"src\utils\HttpUtil.*",
-"src\utils\Scoped.*",
-"src\utils\StrUtil.*",
-"src\utils\WinUtil.*",
-"src\wingui\*",
-"src\installer\Install.cpp",
-"src\installer\Installer.cpp",
-"src\installer\Installer.h",
-"src\installer\Uninstall.cpp"
+$files =
+"src\*.cpp",
+"src\*.h",
+"src\mui\*.cpp",
+"src\mui\*.h",
+"src\utils\*.cpp",
+"src\utils\*.h",
+"src\utils\tests\*.cpp",
+"src\utils\tests\*.h",
+"src\wingui\*.cpp",
+"src\wingui\*.h",
+"src\installer\*.cpp",
+"src\installer\*.h",
+"src\tools\*.cpp"
+"src\tools\*.h"
+
+$whiteList =
+"resource.h",
+"Version.h",
+"Trans_sumatra_txt.cpp",
+"Trans_installer_txt.cpp"
+
+function isWhiteListed($name) {
+  $name = $name.ToLower()
+	foreach ($item in $whiteList) {
+		$inList = $item.ToLower().EndsWith($name)
+		if ($inList) {
+			return $inList
+		}
+	}
+	return $false
+}
 
 foreach ($file in $files) {
   $files2 = Get-ChildItem $file
   foreach ($file2 in $files2) {
-    Write-Host $file2
-    clang-format.exe -i -style=file $file2
+    if (isWhiteListed($file2.Name)) {
+      Write-Host "Skipping $file2"
+    } else {
+      Write-Host $file2
+      clang-format.exe -i -style=file $file2
+    }
   }
 }
 

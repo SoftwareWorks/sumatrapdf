@@ -1,4 +1,4 @@
-/* Copyright 2015 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2018 the SumatraPDF project authors (see AUTHORS file).
    License: GPLv3 */
 
 // Doc is to EbookController what BaseEngine is to DisplayModel:
@@ -74,8 +74,8 @@ class Doc {
     const WCHAR* GetFilePath() const;
     const WCHAR* GetDefaultFileExt() const;
     WCHAR* GetProperty(DocumentProperty prop) const;
-    const char* GetHtmlData(size_t& len) const;
-    size_t GetHtmlDataSize() const;
+    std::string_view GetHtmlData() const;
+
     ImageData* GetCoverImage() const;
     bool HasToc() const;
     bool ParseToc(EbookTocVisitor* visitor) const;

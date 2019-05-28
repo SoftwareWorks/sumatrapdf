@@ -1,10 +1,10 @@
-/* Copyright 2015 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2018 the SumatraPDF project authors (see AUTHORS file).
    License: GPLv3 */
 
 struct DrawInstr;
 struct EbookControls;
 struct EbookFormattingData;
-struct FrameRateWnd;
+class FrameRateWnd;
 
 class EbookController;
 class EbookFormattingThread;

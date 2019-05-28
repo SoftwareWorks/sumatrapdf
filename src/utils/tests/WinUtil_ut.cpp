@@ -1,32 +1,32 @@
-/* Copyright 2015 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2018 the SumatraPDF project authors (see AUTHORS file).
    License: Simplified BSD (see COPYING.BSD) */
 
-#include "BaseUtil.h"
-#include "WinUtil.h"
+#include "utils/BaseUtil.h"
+#include "utils/ScopedWin.h"
+#include "utils/WinUtil.h"
 
 // must be last due to assert() over-write
-#include "UtAssert.h"
+#include "utils/UtAssert.h"
 
-void WinUtilTest()
-{
+void WinUtilTest() {
     ScopedCom comScope;
 
     {
-        char *string = "abcde";
+        char* string = "abcde";
         size_t stringSize = 5, len;
         ScopedComPtr<IStream> stream(CreateStreamFromData(string, stringSize));
         utassert(stream);
-        char *data = (char *)GetDataFromStream(stream, &len);
+        char* data = (char*)GetDataFromStream(stream, &len);
         utassert(data && stringSize == len && str::Eq(data, string));
         free(data);
     }
 
     {
-        WCHAR *string = L"abcde";
+        WCHAR* string = L"abcde";
         size_t stringSize = 10, len;
         ScopedComPtr<IStream> stream(CreateStreamFromData(string, stringSize));
         utassert(stream);
-        WCHAR *data = (WCHAR *)GetDataFromStream(stream, &len);
+        WCHAR* data = (WCHAR*)GetDataFromStream(stream, &len);
         utassert(data && stringSize == len && str::Eq(data, string));
         free(data);
     }
@@ -52,5 +52,4 @@ void WinUtilTest()
         utassert(c == RGB(128, 128, 128));
     }
 #endif
-
 }

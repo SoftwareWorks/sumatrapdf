@@ -1,4 +1,4 @@
-/* Copyright 2015 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2018 the SumatraPDF project authors (see AUTHORS file).
    License: Simplified BSD (see COPYING.BSD) */
 
 #include "BaseUtil.h"
@@ -9,41 +9,41 @@ namespace fmt {
 static Type typeFromChar(char c) {
     switch (c) {
         case 'c': // char
-            return Char;
+            return Type::Char;
         case 's': // string or wstring
-            return Str;
+            return Type::Str;
         case 'd': // integer in base 10
-            return Int;
+            return Type::Int;
         case 'f': // float or double
-            return Float;
+            return Type::Float;
     }
     CrashIf(true);
-    return Invalid;
+    return Type::Invalid;
 }
 
-Fmt::Fmt(const char *fmt) {
+Fmt::Fmt(const char* fmt) {
     threadId = GetCurrentThreadId();
     ParseFormat(fmt);
 }
 
-void Fmt::addFormatStr(const char *s, size_t len) {
+void Fmt::addFormatStr(const char* s, size_t len) {
     if (len == 0) {
         return;
     }
     CrashIf(nInst >= MaxInstructions);
-    instructions[nInst].t = FormatStr;
+    instructions[nInst].t = Type::FormatStr;
     instructions[nInst].argNo = currArgFromFormatNo;
     ++nInst;
 
     CrashIf(nArgsUsed >= MaxArgs);
-    args[currArgFromFormatNo].t = FormatStr;
+    args[currArgFromFormatNo].t = Type::FormatStr;
     args[currArgFromFormatNo].s = s;
     args[currArgFromFormatNo].len = len;
     nArgsUsed++;
     --currArgFromFormatNo;
 }
 
-const char *Fmt::parseArgDefPositional(const char *fmt) {
+const char* Fmt::parseArgDefPositional(const char* fmt) {
     CrashIf(*fmt != '{');
     ++fmt;
     int n = 0;
@@ -53,13 +53,13 @@ const char *Fmt::parseArgDefPositional(const char *fmt) {
         n = n * 10 + (*fmt - '0');
         ++fmt;
     }
-    instructions[nInst].t = Any;
+    instructions[nInst].t = Type::Any;
     instructions[nInst].argNo = n;
     ++nInst;
     return fmt + 1;
 }
 
-const char *Fmt::parseArgDefPerc(const char *fmt) {
+const char* Fmt::parseArgDefPerc(const char* fmt) {
     CrashIf(*fmt != '%');
     // TODO: more features
     instructions[nInst].t = typeFromChar(fmt[1]);
@@ -69,7 +69,7 @@ const char *Fmt::parseArgDefPerc(const char *fmt) {
     return fmt + 2;
 }
 
-static bool hasInstructionWithArgNo(Inst *insts, int nInst, int argNo) {
+static bool hasInstructionWithArgNo(Inst* insts, int nInst, int argNo) {
     for (int i = 0; i < nInst; i++) {
         if (insts[i].argNo == argNo) {
             return true;
@@ -80,15 +80,14 @@ static bool hasInstructionWithArgNo(Inst *insts, int nInst, int argNo) {
 
 // as an optimization, we can re-use object by calling ParseFormat() only once
 // and then using Reset() to restore the output
-Fmt &Fmt::Reset() {
+Fmt& Fmt::Reset() {
     CrashIf(threadId != GetCurrentThreadId()); // check no cross-thread use
     CrashIf(format != nullptr);
     res.Reset();
     return *this;
 }
 
-Fmt &Fmt::ParseFormat(const char *fmt) {
-
+Fmt& Fmt::ParseFormat(const char* fmt) {
     // we can use Fmt in an optimized way by having only one global instance per
     // thread or an instance for a given format expression. To make that a bit
     // safer, we check that they are not used cross-thread
@@ -105,7 +104,7 @@ Fmt &Fmt::ParseFormat(const char *fmt) {
 
     // parse formatting string, until a %$c or {$n}
     // %% is how we escape %, \{ is how we escape {
-    const char *start = fmt;
+    const char* start = fmt;
     char c;
     while (*fmt) {
         c = *fmt;
@@ -144,7 +143,7 @@ Fmt &Fmt::ParseFormat(const char *fmt) {
 
     // check that arg numbers in {$n} makes sense
     for (int i = 0; i < nInst; i++) {
-        if (instructions[i].t == FormatStr) {
+        if (instructions[i].t == Type::FormatStr) {
             continue;
         }
         if (instructions[i].argNo > maxArgNo) {
@@ -165,7 +164,7 @@ Fmt &Fmt::ParseFormat(const char *fmt) {
     return *this;
 }
 
-Fmt &Fmt::addArgType(Type t) {
+Fmt& Fmt::addArgType(Type t) {
     CrashIf(nArgsUsed >= MaxArgs);
     args[nArgs].t = t;
     nArgs++;
@@ -173,54 +172,54 @@ Fmt &Fmt::addArgType(Type t) {
     return *this;
 }
 
-Fmt &Fmt::i(int i) {
+Fmt& Fmt::i(int i) {
     args[nArgs].i = i;
-    return addArgType(Int);
+    return addArgType(Type::Int);
 }
 
-Fmt &Fmt::s(const char *s) {
+Fmt& Fmt::s(const char* s) {
     args[nArgs].s = s;
-    return addArgType(Str);
+    return addArgType(Type::Str);
 }
 
-Fmt &Fmt::s(const WCHAR *s) {
+Fmt& Fmt::s(const WCHAR* s) {
     args[nArgs].ws = s;
-    return addArgType(WStr);
+    return addArgType(Type::WStr);
 }
 
-Fmt &Fmt::c(char c) {
+Fmt& Fmt::c(char c) {
     args[nArgs].c = c;
-    return addArgType(Char);
+    return addArgType(Type::Char);
 }
 
-Fmt &Fmt::f(float f) {
+Fmt& Fmt::f(float f) {
     args[nArgs].f = f;
-    return addArgType(Float);
+    return addArgType(Type::Float);
 }
 
-Fmt &Fmt::f(double d) {
+Fmt& Fmt::f(double d) {
     args[nArgs].d = d;
-    return addArgType(Double);
+    return addArgType(Type::Double);
 }
 
 static bool validArgTypes(Type instType, Type argType) {
-    if (instType == Any) {
+    if (instType == Type::Any) {
         return true;
     }
-    if (instType == FormatStr) {
-        return argType == FormatStr;
+    if (instType == Type::FormatStr) {
+        return argType == Type::FormatStr;
     }
-    if (instType == Char) {
-        return argType == Char;
+    if (instType == Type::Char) {
+        return argType == Type::Char;
     }
-    if (instType == Int) {
-        return argType == Int;
+    if (instType == Type::Int) {
+        return argType == Type::Int;
     }
-    if (instType == Float) {
-        return argType == Float || argType == Double;
+    if (instType == Type::Float) {
+        return argType == Type::Float || argType == Type::Double;
     }
-    if (instType == Str) {
-        return argType == Str || argType == WStr;
+    if (instType == Type::Str) {
+        return argType == Type::Str || argType == Type::WStr;
     }
     return false;
 }
@@ -239,38 +238,38 @@ void Fmt::serializeInst(int n) {
         return;
     }
     switch (tArg) {
-        case Char:
+        case Type::Char:
             res.Append(arg.c);
             break;
-        case Int:
+        case Type::Int:
             // TODO: using AppendFmt is cheating
             res.AppendFmt("%d", arg.i);
             break;
-        case Float:
+        case Type::Float:
             // TODO: using AppendFmt is cheating
             // Note: %G, unlike %f, avoid trailing '0'
             res.AppendFmt("%G", arg.f);
             break;
-        case Double:
+        case Type::Double:
             // TODO: using AppendFmt is cheating
             // Note: %G, unlike %f, avoid trailing '0'
             res.AppendFmt("%G", arg.d);
             break;
-        case FormatStr:
+        case Type::FormatStr:
             CrashIf(arg.len == 0);
             res.Append(arg.s, arg.len);
             break;
-        case Str:
+        case Type::Str:
             res.Append(arg.s);
             break;
-        case WStr:
-            char *sUtf8 = str::conv::ToUtf8(arg.ws);
-            res.AppendAndFree(sUtf8);
+        case Type::WStr:
+            OwnedData sUtf8 = str::conv::ToUtf8(arg.ws);
+            res.AppendAndFree(sUtf8.StealData());
             break;
     };
 }
 
-char *Fmt::Get() {
+char* Fmt::Get() {
     CrashIf(nArgs != maxArgNo + 1);
     for (int i = 0; isOk && i < nInst; i++) {
         serializeInst(i);
@@ -283,5 +282,7 @@ char *Fmt::Get() {
     return res.Get();
 }
 
-char *Fmt::GetDup() { return str::Dup(Get()); }
+char* Fmt::GetDup() {
+    return str::Dup(Get());
 }
+} // namespace fmt

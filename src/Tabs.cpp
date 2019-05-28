@@ -1,23 +1,24 @@
-/* Copyright 2015 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2018 the SumatraPDF project authors (see AUTHORS file).
    License: GPLv3 */
 
-// utils
-#include "BaseUtil.h"
-#include "WinDynCalls.h"
-#include "Dpi.h"
-#include "FileUtil.h"
-#include "GdiPlusUtil.h"
-#include "UITask.h"
-#include "WinUtil.h"
-// rendering engines
+#include "utils/BaseUtil.h"
+#include "utils/ScopedWin.h"
+#include "utils/WinDynCalls.h"
+#include "utils/Dpi.h"
+#include "utils/FileUtil.h"
+#include "utils/GdiPlusUtil.h"
+#include "utils/UITask.h"
+#include "utils/WinUtil.h"
+#include "wingui/TreeCtrl.h"
+
 #include "BaseEngine.h"
 #include "EngineManager.h"
-// layout controllers
 #include "SettingsStructs.h"
 #include "Controller.h"
-// ui
 #include "Colors.h"
 #include "GlobalPrefs.h"
+#include "ProgressUpdateUI.h"
+#include "Notifications.h"
 #include "SumatraPDF.h"
 #include "WindowInfo.h"
 #include "TabInfo.h"
@@ -26,8 +27,6 @@
 #include "Menu.h"
 #include "TableOfContents.h"
 #include "Tabs.h"
-
-static void SwapTabs(WindowInfo* win, int tab1, int tab2);
 
 #define DEFAULT_CURRENT_BG_COL (COLORREF) - 1
 
@@ -93,7 +92,6 @@ class TabPainter {
         GraphicsPath shape;
         // define tab's body
         shape.AddRectangle(Rect(0, 0, width, height));
-        shape.CloseFigure();
         shape.SetMarker();
 
         // define "x"'s circle
@@ -260,7 +258,7 @@ class TabPainter {
             // draw tab's text
             gfx.SetCompositingMode(CompositingModeSourceOver);
             br.SetColor(ToColor(textCol));
-            gfx.DrawString(text.At(i), -1, &f, layout, &sf, &br);
+            gfx.DrawString(text.at(i), -1, &f, layout, &sf, &br);
 
             // paint "x"'s circle
             iterator.NextMarker(&shape);
@@ -278,13 +276,13 @@ class TabPainter {
         }
     }
 
-    int Count() { return (int)text.Count(); }
+    int Count() { return (int)text.size(); }
 
     void Insert(int index, const WCHAR* t) { text.InsertAt(index, str::Dup(t)); }
 
     bool Set(int index, const WCHAR* t) {
         if (index < Count()) {
-            str::ReplacePtr(&text.At(index), t);
+            str::ReplacePtr(&text.at(index), t);
             return true;
         }
         return false;
@@ -300,6 +298,28 @@ class TabPainter {
 
     void DeleteAll() { text.Reset(); }
 };
+
+static void SetTabTitle(WindowInfo* win, TabInfo* tab) {
+    TCITEM tcs;
+    tcs.mask = TCIF_TEXT;
+    tcs.pszText = (WCHAR*)tab->GetTabTitle();
+    TabCtrl_SetItem(win->hwndTabBar, win->tabs.Find(tab), &tcs);
+}
+
+static void SwapTabs(WindowInfo* win, int tab1, int tab2) {
+    if (tab1 == tab2 || tab1 < 0 || tab2 < 0)
+        return;
+
+    std::swap(win->tabs.at(tab1), win->tabs.at(tab2));
+    SetTabTitle(win, win->tabs.at(tab1));
+    SetTabTitle(win, win->tabs.at(tab2));
+
+    int current = TabCtrl_GetCurSel(win->hwndTabBar);
+    if (tab1 == current)
+        TabCtrl_SetCurSel(win->hwndTabBar, tab2);
+    else if (tab2 == current)
+        TabCtrl_SetCurSel(win->hwndTabBar, tab1);
+}
 
 static void TabNotification(WindowInfo* win, UINT code, int idx1, int idx2) {
     if (!WindowInfoStillValid(win)) {
@@ -622,15 +642,15 @@ void SaveCurrentTabInfo(WindowInfo* win) {
     int current = TabCtrl_GetCurSel(win->hwndTabBar);
     if (-1 == current)
         return;
-    CrashIf(win->currentTab != win->tabs.At(current));
+    CrashIf(win->currentTab != win->tabs.at(current));
 
     TabInfo* tdata = win->currentTab;
     CrashIf(!tdata);
     if (win->tocLoaded) {
         tdata->tocState.Reset();
-        HTREEITEM hRoot = TreeView_GetRoot(win->hwndTocTree);
+        HTREEITEM hRoot = win->tocTreeCtrl->GetRoot();
         if (hRoot)
-            UpdateTocExpansionState(tdata, win->hwndTocTree, hRoot);
+            UpdateTocExpansionState(tdata, win->tocTreeCtrl, hRoot);
     }
     VerifyTabInfo(win, tdata);
 
@@ -651,13 +671,6 @@ void UpdateCurrentTabBgColor(WindowInfo* win) {
     RepaintNow(win->hwndTabBar);
 }
 
-static void SetTabTitle(WindowInfo* win, TabInfo* tab) {
-    TCITEM tcs;
-    tcs.mask = TCIF_TEXT;
-    tcs.pszText = (WCHAR*)tab->GetTabTitle();
-    TabCtrl_SetItem(win->hwndTabBar, win->tabs.Find(tab), &tcs);
-}
-
 // On load of a new document we insert a new tab item in the tab bar.
 TabInfo* CreateNewTab(WindowInfo* win, const WCHAR* filePath) {
     CrashIf(!win);
@@ -668,26 +681,22 @@ TabInfo* CreateNewTab(WindowInfo* win, const WCHAR* filePath) {
     win->tabs.Append(tab);
     tab->canvasRc = win->canvasRc;
 
-    TCITEMW tcs;
+    TCITEMW tcs = {0};
     tcs.mask = TCIF_TEXT;
     tcs.pszText = (WCHAR*)tab->GetTabTitle();
 
-    int index = (int)win->tabs.Count() - 1;
-    if (-1 != TabCtrl_InsertItem(win->hwndTabBar, index, &tcs)) {
-        TabCtrl_SetCurSel(win->hwndTabBar, index);
-        UpdateTabWidth(win);
-    } else {
-        // TODO: what now?
-        CrashIf(true);
-    }
-
+    int idx = (int)win->tabs.size() - 1;
+    auto insertedIdx = TabCtrl_InsertItem(win->hwndTabBar, idx, &tcs);
+    CrashIf(insertedIdx == -1);
+    TabCtrl_SetCurSel(win->hwndTabBar, idx);
+    UpdateTabWidth(win);
     return tab;
 }
 
 // Refresh the tab's title
 void TabsOnChangedDoc(WindowInfo* win) {
     TabInfo* tab = win->currentTab;
-    CrashIf(!tab != !win->tabs.Count());
+    CrashIf(!tab != !win->tabs.size());
     if (!tab)
         return;
 
@@ -697,7 +706,7 @@ void TabsOnChangedDoc(WindowInfo* win) {
 }
 
 static void RemoveTab(WindowInfo* win, int idx) {
-    TabInfo* tab = win->tabs.At(idx);
+    TabInfo* tab = win->tabs.at(idx);
     UpdateTabFileDisplayStateForWin(win, tab);
     win->tabSelectionHistory->Remove(tab);
     win->tabs.Remove(tab);
@@ -712,7 +721,7 @@ static void RemoveTab(WindowInfo* win, int idx) {
 
 // Called when we're closing a document
 void TabsOnCloseDoc(WindowInfo* win) {
-    if (win->tabs.Count() == 0)
+    if (win->tabs.size() == 0)
         return;
 
     /* if (win->AsFixed() && win->AsFixed()->userAnnots && win->AsFixed()->userAnnotsModified) {
@@ -722,7 +731,7 @@ void TabsOnCloseDoc(WindowInfo* win) {
     int current = TabCtrl_GetCurSel(win->hwndTabBar);
     RemoveTab(win, current);
 
-    if (win->tabs.Count() > 0) {
+    if (win->tabs.size() > 0) {
         TabInfo* tab = win->tabSelectionHistory->Pop();
         TabCtrl_SetCurSel(win->hwndTabBar, win->tabs.Find(tab));
         LoadModelIntoTab(win, tab);
@@ -752,7 +761,7 @@ LRESULT TabsOnNotify(WindowInfo* win, LPARAM lparam, int tab1, int tab2) {
 
         case TCN_SELCHANGE:
             current = TabCtrl_GetCurSel(win->hwndTabBar);
-            LoadModelIntoTab(win, win->tabs.At(current));
+            LoadModelIntoTab(win, win->tabs.at(current));
             break;
 
         case T_CLOSING:
@@ -785,18 +794,19 @@ static void ShowTabBar(WindowInfo* win, bool show) {
 }
 
 void UpdateTabWidth(WindowInfo* win) {
-    int count = (int)win->tabs.Count();
+    int count = (int)win->tabs.size();
     bool showSingleTab = gGlobalPrefs->useTabs || win->tabsInTitlebar;
-    if (count > (showSingleTab ? 0 : 1)) {
-        ShowTabBar(win, true);
-        ClientRect rect(win->hwndTabBar);
-        SizeI tabSize = GetTabSize(win->hwndFrame);
-        if (tabSize.dx > (rect.dx - 3) / count)
-            tabSize.dx = (rect.dx - 3) / count;
-        TabCtrl_SetItemSize(win->hwndTabBar, tabSize.dx, tabSize.dy);
-    } else {
+    bool showTabs = (count > 1) || (showSingleTab && (count > 0));
+    if (!showTabs) {
         ShowTabBar(win, false);
+        return;
     }
+    ShowTabBar(win, true);
+    ClientRect rect(win->hwndTabBar);
+    SizeI tabSize = GetTabSize(win->hwndFrame);
+    auto maxDx = (rect.dx - 3) / count;
+    tabSize.dx = std::min(tabSize.dx, maxDx);
+    TabCtrl_SetItemSize(win->hwndTabBar, tabSize.dx, tabSize.dy);
 }
 
 void SetTabsInTitlebar(WindowInfo* win, bool set) {
@@ -825,13 +835,13 @@ void SetTabsInTitlebar(WindowInfo* win, bool set) {
 
 // Selects the given tab (0-based index).
 void TabsSelect(WindowInfo* win, int tabIndex) {
-    int count = (int)win->tabs.Count();
+    int count = (int)win->tabs.size();
     if (count < 2 || tabIndex < 0 || tabIndex >= count)
         return;
     NMHDR ntd = {nullptr, 0, TCN_SELCHANGING};
     if (TabsOnNotify(win, (LPARAM)&ntd))
         return;
-    win->currentTab = win->tabs.At(tabIndex);
+    win->currentTab = win->tabs.at(tabIndex);
     int prevIndex = TabCtrl_SetCurSel(win->hwndTabBar, tabIndex);
     if (prevIndex != -1) {
         ntd.code = TCN_SELCHANGE;
@@ -841,26 +851,11 @@ void TabsSelect(WindowInfo* win, int tabIndex) {
 
 // Selects the next (or previous) tab.
 void TabsOnCtrlTab(WindowInfo* win, bool reverse) {
-    int count = (int)win->tabs.Count();
+    int count = (int)win->tabs.size();
     if (count < 2) {
         return;
     }
 
     int next = (TabCtrl_GetCurSel(win->hwndTabBar) + (reverse ? -1 : 1) + count) % count;
     TabsSelect(win, next);
-}
-
-static void SwapTabs(WindowInfo* win, int tab1, int tab2) {
-    if (tab1 == tab2 || tab1 < 0 || tab2 < 0)
-        return;
-
-    std::swap(win->tabs.At(tab1), win->tabs.At(tab2));
-    SetTabTitle(win, win->tabs.At(tab1));
-    SetTabTitle(win, win->tabs.At(tab2));
-
-    int current = TabCtrl_GetCurSel(win->hwndTabBar);
-    if (tab1 == current)
-        TabCtrl_SetCurSel(win->hwndTabBar, tab2);
-    else if (tab2 == current)
-        TabCtrl_SetCurSel(win->hwndTabBar, tab1);
 }

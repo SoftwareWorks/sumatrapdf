@@ -1,20 +1,18 @@
-/* Copyright 2015 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2018 the SumatraPDF project authors (see AUTHORS file).
    License: GPLv3 */
 
-// utils
-#include "BaseUtil.h"
+#include "utils/BaseUtil.h"
 #include <zlib.h>
-#include "ByteReader.h"
-#include "FileUtil.h"
-#include "WinUtil.h"
-// rendering engines
+#include "utils/ByteReader.h"
+#include "utils/ScopedWin.h"
+#include "utils/FileUtil.h"
+#include "utils/WinUtil.h"
 #include "BaseEngine.h"
 #include "PdfEngine.h"
 #include "PsEngine.h"
 
-static WCHAR *GetGhostscriptPath()
-{
-   const WCHAR *gsProducts[] = {
+static WCHAR* GetGhostscriptPath() {
+    const WCHAR* gsProducts[] = {
         L"AFPL Ghostscript",
         L"Aladdin Ghostscript",
         L"GPL Ghostscript",
@@ -42,15 +40,14 @@ TryAgain64Bit:
         // (unless this is 32-bit Windows)
         if (IsRunningInWow64())
 #endif
-        goto TryAgain64Bit;
+            goto TryAgain64Bit;
     }
     versions.SortNatural();
 
     // return the path to the newest installation
-    for (size_t ix = versions.Count(); ix > 0; ix--) {
+    for (size_t ix = versions.size(); ix > 0; ix--) {
         for (int i = 0; i < dimof(gsProducts); i++) {
-            AutoFreeW keyName(str::Format(L"Software\\%s\\%s",
-                                                 gsProducts[i], versions.At(ix - 1)));
+            AutoFreeW keyName(str::Format(L"Software\\%s\\%s", gsProducts[i], versions.at(ix - 1)));
             AutoFreeW GS_DLL(ReadRegStr(HKEY_LOCAL_MACHINE, keyName, L"GS_DLL"));
             if (!GS_DLL)
                 continue;
@@ -71,11 +68,11 @@ TryAgain64Bit:
         GetEnvironmentVariable(L"PATH", envpath, size);
         WStrVec paths;
         paths.Split(envpath, L";", true);
-        for (size_t ix = 0; ix < paths.Count(); ix++) {
-            AutoFreeW exe(path::Join(paths.At(ix), L"gswin32c.exe"));
+        for (size_t ix = 0; ix < paths.size(); ix++) {
+            AutoFreeW exe(path::Join(paths.at(ix), L"gswin32c.exe"));
             if (file::Exists(exe))
                 return exe.StealData();
-            exe.Set(path::Join(paths.At(ix), L"gswin64c.exe"));
+            exe.Set(path::Join(paths.at(ix), L"gswin64c.exe"));
             if (file::Exists(exe))
                 return exe.StealData();
         }
@@ -87,17 +84,16 @@ TryAgain64Bit:
 class ScopedFile {
     AutoFreeW path;
 
-public:
-    explicit ScopedFile(const WCHAR *path) : path(str::Dup(path)) { }
+  public:
+    explicit ScopedFile(const WCHAR* path) : path(str::Dup(path)) {}
     ~ScopedFile() {
         if (path)
             file::Delete(path);
     }
 };
 
-static RectI ExtractDSCPageSize(const WCHAR *fileName)
-{
-    char header[1024] = { 0 };
+static RectI ExtractDSCPageSize(const WCHAR* fileName) {
+    char header[1024] = {0};
     file::ReadN(fileName, header, sizeof(header) - 1);
     if (!str::StartsWith(header, "%!PS-Adobe-"))
         return RectI();
@@ -106,7 +102,7 @@ static RectI ExtractDSCPageSize(const WCHAR *fileName)
     // e.g. through a setpagedevice call in PostScript code,
     // some creators however fail to do so and only indicate
     // the page size in a DSC BoundingBox comment.
-    char *nl = header;
+    char* nl = header;
     geomutil::RectT<float> bbox;
     while ((nl = strchr(nl + 1, '\n')) != nullptr && '%' == nl[1]) {
         if (str::StartsWith(nl + 1, "%%BoundingBox:") &&
@@ -118,8 +114,7 @@ static RectI ExtractDSCPageSize(const WCHAR *fileName)
     return RectI();
 }
 
-static BaseEngine *ps2pdf(const WCHAR *fileName)
-{
+static BaseEngine* ps2pdf(const WCHAR* fileName) {
     // TODO: read from gswin32c's stdout instead of using a TEMP file
     AutoFreeW shortPath(path::ShortPath(fileName));
     AutoFreeW tmpFile(path::GetTempPath(L"PsE"));
@@ -134,10 +129,12 @@ static BaseEngine *ps2pdf(const WCHAR *fileName)
     if (!page.IsEmpty())
         psSetup.Set(str::Format(L" << /PageSize [%i %i] >> setpagedevice", page.dx, page.dy));
 
-    AutoFreeW cmdLine(str::Format(
-        L"\"%s\" -q -dSAFER -dNOPAUSE -dBATCH -dEPSCrop -sOutputFile=\"%s\" -sDEVICE=pdfwrite -c \".setpdfwrite%s\" -f \"%s\"",
-        gswin32c.Get(), tmpFile.Get(), psSetup ? psSetup.Get() : L"", shortPath.Get()));
-    fprintf(stderr, "- %s:%d: using '%ls' for creating '%%TEMP%%\\%ls'\n", path::GetBaseName(__FILE__), __LINE__, gswin32c.Get(), path::GetBaseName(tmpFile));
+    AutoFreeW cmdLine(
+        str::Format(L"\"%s\" -q -dSAFER -dNOPAUSE -dBATCH -dEPSCrop -sOutputFile=\"%s\" -sDEVICE=pdfwrite -c "
+                    L"\".setpdfwrite%s\" -f \"%s\"",
+                    gswin32c.Get(), tmpFile.Get(), psSetup ? psSetup.Get() : L"", shortPath.Get()));
+    fprintf(stderr, "- %s:%d: using '%ls' for creating '%%TEMP%%\\%ls'\n", path::GetBaseName(__FILE__), __LINE__,
+            gswin32c.Get(), path::GetBaseName(tmpFile));
 
     // TODO: the PS-to-PDF conversion can hang the UI for several seconds
     HANDLE process = LaunchProcess(cmdLine, nullptr, CREATE_NO_WINDOW);
@@ -155,43 +152,47 @@ static BaseEngine *ps2pdf(const WCHAR *fileName)
     GetExitCodeProcess(process, &exitCode);
     TerminateProcess(process, 1);
     CloseHandle(process);
-    if (exitCode != EXIT_SUCCESS)
+    if (exitCode != EXIT_SUCCESS) {
         return nullptr;
+    }
 
-    size_t len;
-    AutoFree pdfData(file::ReadAll(tmpFile, &len));
-    if (!pdfData)
+    OwnedData pdfData(file::ReadFile(tmpFile));
+    if (!pdfData.data) {
         return nullptr;
+    }
 
-    ScopedComPtr<IStream> stream(CreateStreamFromData(pdfData, len));
-    if (!stream)
+    ScopedComPtr<IStream> stream(CreateStreamFromData(pdfData.data, pdfData.size));
+    if (!stream) {
         return nullptr;
+    }
 
     return PdfEngine::CreateFromStream(stream);
 }
 
-static BaseEngine *psgz2pdf(const WCHAR *fileName)
-{
+static BaseEngine* psgz2pdf(const WCHAR* fileName) {
     AutoFreeW tmpFile(path::GetTempPath(L"PsE"));
     ScopedFile tmpFileScope(tmpFile);
-    if (!tmpFile)
+    if (!tmpFile) {
         return nullptr;
+    }
 
     gzFile inFile = gzopen_w(fileName, "rb");
-    if (!inFile)
+    if (!inFile) {
         return nullptr;
-    FILE *outFile = nullptr;
+    }
+    FILE* outFile = nullptr;
     errno_t err = _wfopen_s(&outFile, tmpFile, L"wb");
     if (err != 0 || !outFile) {
         gzclose(inFile);
         return nullptr;
     }
 
-    char buffer[12*1024];
+    char buffer[12 * 1024];
     for (;;) {
         int len = gzread(inFile, buffer, sizeof(buffer));
-        if (len <= 0)
+        if (len <= 0) {
             break;
+        }
         fwrite(buffer, 1, len, outFile);
     }
     fclose(outFile);
@@ -203,55 +204,58 @@ static BaseEngine *psgz2pdf(const WCHAR *fileName)
 // PsEngineImpl is mostly a proxy for a PdfEngine that's fed whatever
 // the ps2pdf conversion from Ghostscript returns
 class PsEngineImpl : public BaseEngine {
-public:
-    PsEngineImpl() : pdfEngine(nullptr) { }
+  public:
+    PsEngineImpl() : pdfEngine(nullptr) {}
 
-    virtual ~PsEngineImpl() {
-        delete pdfEngine;
-    }
+    virtual ~PsEngineImpl() { delete pdfEngine; }
 
-    BaseEngine *Clone() override {
-        BaseEngine *newEngine = pdfEngine->Clone();
+    BaseEngine* Clone() override {
+        BaseEngine* newEngine = pdfEngine->Clone();
         if (!newEngine)
             return nullptr;
-        PsEngineImpl *clone = new PsEngineImpl();
+        PsEngineImpl* clone = new PsEngineImpl();
         if (FileName())
             clone->SetFileName(FileName());
         clone->pdfEngine = newEngine;
         return clone;
     }
 
-    int PageCount() const override {
-        return pdfEngine->PageCount();
-    }
+    int PageCount() const override { return pdfEngine->PageCount(); }
 
-    RectD PageMediabox(int pageNo) override {
-        return pdfEngine->PageMediabox(pageNo);
-    }
+    RectD PageMediabox(int pageNo) override { return pdfEngine->PageMediabox(pageNo); }
 
-    RectD PageContentBox(int pageNo, RenderTarget target=Target_View) override {
+    RectD PageContentBox(int pageNo, RenderTarget target = RenderTarget::View) override {
         return pdfEngine->PageContentBox(pageNo, target);
     }
 
-    RenderedBitmap *RenderBitmap(int pageNo, float zoom, int rotation,
-                         RectD *pageRect=nullptr, /* if nullptr: defaults to the page's mediabox */
-                         RenderTarget target=Target_View, AbortCookie **cookie_out=nullptr) override {
+    RenderedBitmap* RenderBitmap(int pageNo, float zoom, int rotation,
+                                 RectD* pageRect = nullptr, /* if nullptr: defaults to the page's mediabox */
+                                 RenderTarget target = RenderTarget::View,
+                                 AbortCookie** cookie_out = nullptr) override {
         return pdfEngine->RenderBitmap(pageNo, zoom, rotation, pageRect, target, cookie_out);
     }
 
-    PointD Transform(PointD pt, int pageNo, float zoom, int rotation, bool inverse=false) override {
+    PointD Transform(PointD pt, int pageNo, float zoom, int rotation, bool inverse = false) override {
         return pdfEngine->Transform(pt, pageNo, zoom, rotation, inverse);
     }
 
-    RectD Transform(RectD rect, int pageNo, float zoom, int rotation, bool inverse=false) override {
+    RectD Transform(RectD rect, int pageNo, float zoom, int rotation, bool inverse = false) override {
         return pdfEngine->Transform(rect, pageNo, zoom, rotation, inverse);
     }
 
-    unsigned char *GetFileData(size_t *cbCount) override {
-        return (unsigned char *)file::ReadAll(FileName(), cbCount);
+    u8* GetFileData(size_t* cbCount) override {
+        const WCHAR* name = FileName();
+        if (!name) {
+            return nullptr;
+        }
+        OwnedData data(file::ReadFile(fileName));
+        if (cbCount) {
+            *cbCount = data.size;
+        }
+        return (u8*)data.StealData();
     }
 
-    bool SaveFileAs(const char *copyFileName, bool includeUserAnnots=false) override {
+    bool SaveFileAs(const char* copyFileName, bool includeUserAnnots = false) override {
         UNUSED(includeUserAnnots);
         if (!FileName()) {
             return false;
@@ -260,90 +264,63 @@ public:
         return CopyFileW(FileName(), dstPath, FALSE);
     }
 
-    bool SaveFileAsPDF(const char *pdfFileName, bool includeUserAnnots=false) override {
+    bool SaveFileAsPDF(const char* pdfFileName, bool includeUserAnnots = false) override {
         return pdfEngine->SaveFileAs(pdfFileName, includeUserAnnots);
     }
 
-    WCHAR * ExtractPageText(int pageNo, const WCHAR *lineSep, RectI **coordsOut=nullptr,
-                                    RenderTarget target=Target_View) override {
+    WCHAR* ExtractPageText(int pageNo, const WCHAR* lineSep, RectI** coordsOut = nullptr,
+                           RenderTarget target = RenderTarget::View) override {
         return pdfEngine->ExtractPageText(pageNo, lineSep, coordsOut, target);
     }
 
-    bool HasClipOptimizations(int pageNo) override {
-        return pdfEngine->HasClipOptimizations(pageNo);
-    }
+    bool HasClipOptimizations(int pageNo) override { return pdfEngine->HasClipOptimizations(pageNo); }
 
-    PageLayoutType PreferredLayout() override {
-        return pdfEngine->PreferredLayout();
-    }
+    PageLayoutType PreferredLayout() override { return pdfEngine->PreferredLayout(); }
 
-    WCHAR *GetProperty(DocumentProperty prop) override {
+    WCHAR* GetProperty(DocumentProperty prop) override {
         // omit properties created by Ghostscript
-        if (!pdfEngine || Prop_CreationDate == prop || Prop_ModificationDate == prop ||
-            Prop_PdfVersion == prop || Prop_PdfProducer == prop || Prop_PdfFileStructure == prop) {
+        if (!pdfEngine || DocumentProperty::CreationDate == prop || DocumentProperty::ModificationDate == prop ||
+            DocumentProperty::PdfVersion == prop || DocumentProperty::PdfProducer == prop ||
+            DocumentProperty::PdfFileStructure == prop) {
             return nullptr;
         }
         return pdfEngine->GetProperty(prop);
     }
 
-    bool SupportsAnnotation(bool forSaving=false) const override {
+    bool SupportsAnnotation(bool forSaving = false) const override {
         return !forSaving && pdfEngine->SupportsAnnotation();
     }
 
-    void UpdateUserAnnotations(Vec<PageAnnotation> *list) override {
-        pdfEngine->UpdateUserAnnotations(list);
-    }
+    void UpdateUserAnnotations(Vec<PageAnnotation>* list) override { pdfEngine->UpdateUserAnnotations(list); }
 
-    bool AllowsPrinting() const override {
-        return pdfEngine->AllowsPrinting();
-    }
+    bool AllowsPrinting() const override { return pdfEngine->AllowsPrinting(); }
 
-    bool AllowsCopyingText() const override {
-        return pdfEngine->AllowsCopyingText();
-    }
+    bool AllowsCopyingText() const override { return pdfEngine->AllowsCopyingText(); }
 
-    float GetFileDPI() const override {
-        return pdfEngine->GetFileDPI();
-    }
+    float GetFileDPI() const override { return pdfEngine->GetFileDPI(); }
 
-    const WCHAR *GetDefaultFileExt() const override {
-        return !str::EndsWithI(FileName(), L".eps") ? L".ps" : L".eps";
-    }
+    const WCHAR* GetDefaultFileExt() const override { return !str::EndsWithI(FileName(), L".eps") ? L".ps" : L".eps"; }
 
-    bool BenchLoadPage(int pageNo) override {
-        return pdfEngine->BenchLoadPage(pageNo);
-    }
+    bool BenchLoadPage(int pageNo) override { return pdfEngine->BenchLoadPage(pageNo); }
 
-    Vec<PageElement *> *GetElements(int pageNo) override {
-        return pdfEngine->GetElements(pageNo);
-    }
+    Vec<PageElement*>* GetElements(int pageNo) override { return pdfEngine->GetElements(pageNo); }
 
-    PageElement *GetElementAtPos(int pageNo, PointD pt) override {
-        return pdfEngine->GetElementAtPos(pageNo, pt);
-    }
+    PageElement* GetElementAtPos(int pageNo, PointD pt) override { return pdfEngine->GetElementAtPos(pageNo, pt); }
 
-    PageDestination *GetNamedDest(const WCHAR *name) override {
-        return pdfEngine->GetNamedDest(name);
-    }
+    PageDestination* GetNamedDest(const WCHAR* name) override { return pdfEngine->GetNamedDest(name); }
 
-    bool HasTocTree() const override {
-        return pdfEngine->HasTocTree();
-    }
+    bool HasTocTree() const override { return pdfEngine->HasTocTree(); }
 
-    DocTocItem *GetTocTree() override {
-        return pdfEngine->GetTocTree();
-    }
+    DocTocItem* GetTocTree() override { return pdfEngine->GetTocTree(); }
 
-    char *GetDecryptionKey() const override {
-        return pdfEngine->GetDecryptionKey();
-    }
+    char* GetDecryptionKey() const override { return pdfEngine->GetDecryptionKey(); }
 
-    static BaseEngine *CreateFromFile(const WCHAR *fileName);
+    static BaseEngine* CreateFromFile(const WCHAR* fileName);
 
-protected:
-    BaseEngine *pdfEngine;
+  protected:
+    BaseEngine* pdfEngine;
 
-    bool Load(const WCHAR *fileName) {
+    bool Load(const WCHAR* fileName) {
         AssertCrash(!FileName() && !pdfEngine);
         if (!fileName)
             return false;
@@ -356,9 +333,8 @@ protected:
     }
 };
 
-BaseEngine *PsEngineImpl::CreateFromFile(const WCHAR *fileName)
-{
-    PsEngineImpl *engine = new PsEngineImpl();
+BaseEngine* PsEngineImpl::CreateFromFile(const WCHAR* fileName) {
+    PsEngineImpl* engine = new PsEngineImpl();
     if (!engine->Load(fileName)) {
         delete engine;
         return nullptr;
@@ -368,19 +344,17 @@ BaseEngine *PsEngineImpl::CreateFromFile(const WCHAR *fileName)
 
 namespace PsEngine {
 
-bool IsAvailable()
-{
+bool IsAvailable() {
     AutoFreeW gswin32c(GetGhostscriptPath());
     return gswin32c.Get() != nullptr;
 }
 
-bool IsSupportedFile(const WCHAR *fileName, bool sniff)
-{
+bool IsSupportedFile(const WCHAR* fileName, bool sniff) {
     if (!IsAvailable())
         return false;
 
     if (sniff) {
-        char header[2048] = { 0 };
+        char header[2048] = {0};
         file::ReadN(fileName, header, sizeof(header) - 1);
         if (str::StartsWith(header, "\xC5\xD0\xD3\xC6")) {
             // Windows-format EPS file - cf. http://partners.adobe.com/public/developer/en/ps/5002.EPSF_Spec.pdf
@@ -392,14 +366,11 @@ bool IsSupportedFile(const WCHAR *fileName, bool sniff)
                str::StartsWith(header, "\x1B%-12345X@PJL") && str::Find(header, "\n%!PS-Adobe-");
     }
 
-    return str::EndsWithI(fileName, L".ps") ||
-           str::EndsWithI(fileName, L".ps.gz") ||
-           str::EndsWithI(fileName, L".eps");
+    return str::EndsWithI(fileName, L".ps") || str::EndsWithI(fileName, L".ps.gz") || str::EndsWithI(fileName, L".eps");
 }
 
-BaseEngine *CreateFromFile(const WCHAR *fileName)
-{
+BaseEngine* CreateFromFile(const WCHAR* fileName) {
     return PsEngineImpl::CreateFromFile(fileName);
 }
 
-}
+} // namespace PsEngine

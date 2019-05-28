@@ -1,4 +1,4 @@
-/* Copyright 2015 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2018 the SumatraPDF project authors (see AUTHORS file).
    License: Simplified BSD (see COPYING.BSD) */
 
 /*
@@ -15,18 +15,17 @@ To write new regression test:
 - call Regress${NN} function from RunTests()
 */
 
-// utils
-#include "BaseUtil.h"
-#include "WinDynCalls.h"
-#include "ArchUtil.h"
-#include "DbgHelpDyn.h"
-#include "DirIter.h"
-#include "FileUtil.h"
-#include "GdiPlusUtil.h"
-#include "HtmlParserLookup.h"
-#include "Mui.h"
-#include "WinUtil.h"
-// rendering engines
+#include "utils/BaseUtil.h"
+#include "utils/ScopedWin.h"
+#include "utils/WinDynCalls.h"
+#include "utils/Archive.h"
+#include "utils/DbgHelpDyn.h"
+#include "utils/DirIter.h"
+#include "utils/FileUtil.h"
+#include "utils/GdiPlusUtil.h"
+#include "utils/HtmlParserLookup.h"
+#include "mui/Mui.h"
+#include "utils/WinUtil.h"
 #include "BaseEngine.h"
 #include "EbookBase.h"
 #include "EbookDoc.h"
@@ -35,40 +34,35 @@ To write new regression test:
 #include "Doc.h"
 // For Regress03 (Text Search)
 #include "EngineManager.h"
+#include "ProgressUpdateUI.h"
 #include "TextSelection.h"
 #include "TextSearch.h"
 
-static WCHAR *gTestFilesDir;
+static WCHAR* gTestFilesDir;
 
-static WCHAR *TestFilesDir()
-{
+static WCHAR* TestFilesDir() {
     return gTestFilesDir;
 }
 
-static int Usage()
-{
+static int Usage() {
     printf("regress.exe\n");
     printf("Error: didn't find test files on this computer!\n");
     system("pause");
     return 1;
 }
 
-static void printflush(const char *s)
-{
+static void printflush(const char* s) {
     printf(s);
     fflush(stdout);
 }
 
 /* Auto-detect the location of test files. Ultimately we might add a cmd-line
 option to specify this directory, for now just add your location(s) to the list */
-static bool FindTestFilesDir()
-{
-    WCHAR *dirsToCheck[] = {
-        L"C:\\Documents and Settings\\kkowalczyk\\My Documents\\Google Drive\\Sumatra",
-        L"C:\\Users\\kkowalczyk\\Google Drive\\Sumatra"
-    };
+static bool FindTestFilesDir() {
+    WCHAR* dirsToCheck[] = {L"C:\\Documents and Settings\\kkowalczyk\\My Documents\\Google Drive\\Sumatra",
+                            L"C:\\Users\\kkowalczyk\\Google Drive\\Sumatra"};
     for (size_t i = 0; i < dimof(dirsToCheck); i++) {
-        WCHAR *dir = dirsToCheck[i];
+        WCHAR* dir = dirsToCheck[i];
         if (dir::Exists(dir)) {
             gTestFilesDir = dir;
             return true;
@@ -77,8 +71,7 @@ static bool FindTestFilesDir()
     return false;
 }
 
-static void VerifyFileExists(const WCHAR *filePath)
-{
+static void VerifyFileExists(const WCHAR* filePath) {
     if (!file::Exists(filePath)) {
         wprintf(L"File '%s' doesn't exist!\n", filePath);
         system("pause");
@@ -86,15 +79,14 @@ static void VerifyFileExists(const WCHAR *filePath)
     }
 }
 
-static HANDLE   gDumpEvent = nullptr;
-static HANDLE   gDumpThread = nullptr;
-static bool     gCrashed = false;
+static HANDLE gDumpEvent = nullptr;
+static HANDLE gDumpThread = nullptr;
+static bool gCrashed = false;
 
-static MINIDUMP_EXCEPTION_INFORMATION gMei = { 0 };
+static MINIDUMP_EXCEPTION_INFORMATION gMei = {0};
 static LPTOP_LEVEL_EXCEPTION_FILTER gPrevExceptionFilter = nullptr;
 
-static DWORD WINAPI CrashDumpThread(LPVOID data)
-{
+static DWORD WINAPI CrashDumpThread(LPVOID data) {
     UNUSED(data);
     WaitForSingleObject(gDumpEvent, INFINITE);
     if (!gCrashed)
@@ -119,8 +111,7 @@ static DWORD WINAPI CrashDumpThread(LPVOID data)
     return 0;
 }
 
-static LONG WINAPI DumpExceptionHandler(EXCEPTION_POINTERS *exceptionInfo)
-{
+static LONG WINAPI DumpExceptionHandler(EXCEPTION_POINTERS* exceptionInfo) {
     if (!exceptionInfo || (EXCEPTION_BREAKPOINT == exceptionInfo->ExceptionRecord->ExceptionCode))
         return EXCEPTION_CONTINUE_SEARCH;
 
@@ -142,8 +133,7 @@ static LONG WINAPI DumpExceptionHandler(EXCEPTION_POINTERS *exceptionInfo)
     return EXCEPTION_CONTINUE_SEARCH;
 }
 
-static void InstallCrashHandler()
-{
+static void InstallCrashHandler() {
     gDumpEvent = CreateEvent(nullptr, FALSE, FALSE, nullptr);
     if (!gDumpEvent) {
         printflush("InstallCrashHandler(): CreateEvent() failed\n");
@@ -157,8 +147,7 @@ static void InstallCrashHandler()
     gPrevExceptionFilter = SetUnhandledExceptionFilter(DumpExceptionHandler);
 }
 
-static void UninstallCrashHandler()
-{
+static void UninstallCrashHandler() {
     if (!gDumpEvent || !gDumpThread)
         return;
 
@@ -175,16 +164,14 @@ static void UninstallCrashHandler()
 #include "Regress00.cpp"
 #include "Regress03.cpp"
 
-static void RunTests()
-{
+static void RunTests() {
     Regress00();
     Regress01();
     Regress02();
     Regress03();
 }
 
-int RegressMain()
-{
+int RegressMain() {
     RedirectIOToConsole();
 
     if (!FindTestFilesDir()) {

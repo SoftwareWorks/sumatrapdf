@@ -1,10 +1,11 @@
-/* Copyright 2015 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2018 the SumatraPDF project authors (see AUTHORS file).
    License: Simplified BSD (see COPYING.BSD) */
 
 #include "BaseUtil.h"
 #include "ThreadUtil.h"
+#include "ScopedWin.h"
 
-#if defined(_MSC_VER)
+#if COMPILER_MSVC
 
 // http://msdn.microsoft.com/en-us/library/xcb2z8hs.aspx
 const DWORD MS_VC_EXCEPTION = 0x406D1388;
@@ -25,7 +26,7 @@ typedef struct tagTHREADNAME_INFO {
                                 // EXCEPTION_EXECUTE_HANDLER. This might mask exceptions that were
                                 // not intended to be handled
 #pragma warning(disable : 6322) // silence /analyze: Empty _except block
-void SetThreadName(DWORD threadId, const char *threadName) {
+void SetThreadName(DWORD threadId, const char* threadName) {
     THREADNAME_INFO info;
     info.dwType = 0x1000;
     info.szName = threadName;
@@ -33,16 +34,16 @@ void SetThreadName(DWORD threadId, const char *threadName) {
     info.dwFlags = 0;
 
     __try {
-        RaiseException(MS_VC_EXCEPTION, 0, sizeof(info) / sizeof(ULONG_PTR), (ULONG_PTR *)&info);
+        RaiseException(MS_VC_EXCEPTION, 0, sizeof(info) / sizeof(ULONG_PTR), (ULONG_PTR*)&info);
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
     }
-    __except(EXCEPTION_EXECUTE_HANDLER) {}
 }
 #pragma warning(push)
 #else
-void SetThreadName(DWORD, const char *) {
+void SetThreadName(DWORD, const char*) {
     // nothing
 }
-#endif
+#endif // COMPILER_MSVC
 
 // We need a way to uniquely identified threads (so that we can test for equality).
 // Thread id assigned by the OS might be recycled. The memory address given to ThreadBase
@@ -52,11 +53,8 @@ static int GenUniqueThreadId() {
     return (int)InterlockedIncrement(&gThreadNoSeq);
 }
 
-ThreadBase::ThreadBase(const char *name)
-    : hThread(nullptr),
-      cancelRequested(false),
-      threadNo(GenUniqueThreadId()),
-      threadName(str::Dup(name)) {
+ThreadBase::ThreadBase(const char* name)
+    : hThread(nullptr), cancelRequested(false), threadNo(GenUniqueThreadId()), threadName(str::Dup(name)) {
     // lf("ThreadBase() %d", threadNo);
 }
 
@@ -65,8 +63,8 @@ ThreadBase::~ThreadBase() {
     CloseHandle(hThread);
 }
 
-DWORD WINAPI ThreadBase::ThreadProc(void *data) {
-    ThreadBase *thread = reinterpret_cast<ThreadBase *>(data);
+DWORD WINAPI ThreadBase::ThreadProc(void* data) {
+    ThreadBase* thread = reinterpret_cast<ThreadBase*>(data);
     if (thread->threadName)
         SetThreadName(GetCurrentThreadId(), thread->threadName);
     thread->Run();
@@ -88,14 +86,14 @@ bool ThreadBase::Join(DWORD waitMs) {
     return false;
 }
 
-static DWORD WINAPI ThreadFunc(void *data) {
-    auto *func = reinterpret_cast<std::function<void()> *>(data);
+static DWORD WINAPI ThreadFunc(void* data) {
+    auto* func = reinterpret_cast<std::function<void()>*>(data);
     (*func)();
     delete func;
     return 0;
 }
 
-void RunAsync(const std::function<void()> &func) {
+void RunAsync(const std::function<void()>& func) {
     auto fp = new std::function<void()>(func);
     ScopedHandle h(CreateThread(nullptr, 0, ThreadFunc, fp, 0, 0));
 }

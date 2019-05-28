@@ -1,8 +1,9 @@
-/* Copyright 2015 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2018 the SumatraPDF project authors (see AUTHORS file).
    License: Simplified BSD (see COPYING.BSD) */
 
 #include "BaseUtil.h"
 #include "FileWatcher.h"
+#include "ScopedWin.h"
 #include "FileUtil.h"
 #include "ThreadUtil.h"
 #include "WinUtil.h"
@@ -61,7 +62,7 @@ struct OverlappedEx {
 // info needed to detect that a file has changed
 struct FileState {
     FILETIME time;
-    int64 size;
+    int64_t size;
 };
 
 struct WatchedDir {
@@ -162,7 +163,7 @@ static void NotifyAboutFile(WatchedDir* d, const WCHAR* fileName) {
 }
 
 static void DeleteWatchedDir(WatchedDir* wd) {
-    free((void*)wd->dirPath);
+    str::Free(wd->dirPath);
     free(wd);
 }
 
@@ -349,7 +350,7 @@ static WatchedDir* NewWatchedDir(const WCHAR* dirPath) {
     return wd;
 }
 
-static WatchedFile* NewWatchedFile(const WCHAR* filePath, std::function<void()> onFileChangedCb) {
+static WatchedFile* NewWatchedFile(const WCHAR* filePath, const std::function<void()>& onFileChangedCb) {
     bool isManualCheck = PathIsNetworkPath(filePath);
     AutoFreeW dirPath(path::GetDir(filePath));
     WatchedDir* wd = nullptr;
@@ -384,7 +385,7 @@ static WatchedFile* NewWatchedFile(const WCHAR* filePath, std::function<void()> 
 }
 
 static void DeleteWatchedFile(WatchedFile* wf) {
-    free((void*)wf->filePath);
+    str::Free(wf->filePath);
     free(wf);
 }
 
@@ -396,7 +397,7 @@ We take ownership of observer object.
 Returns a cancellation token that can be used in FileWatcherUnsubscribe(). That
 way we can support multiple callers subscribing to the same file.
 */
-WatchedFile* FileWatcherSubscribe(const WCHAR* path, std::function<void()> onFileChangedCb) {
+WatchedFile* FileWatcherSubscribe(const WCHAR* path, const std::function<void()>& onFileChangedCb) {
     lf(L"FileWatcherSubscribe() path: %s", path);
 
     if (!file::Exists(path)) {

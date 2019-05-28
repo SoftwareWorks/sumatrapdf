@@ -4,28 +4,25 @@
 using namespace sertxt;
 
 struct EbookPageDef {
-    const char *  name;
-    const char *  style;
+    const char* name;
+    const char* style;
 };
 
 extern const StructMetadata gEbookPageDefMetadata;
 
-inline EbookPageDef *DeserializeEbookPageDef(char *data, size_t dataLen)
-{
-    return (EbookPageDef*)Deserialize(data, dataLen, &gEbookPageDefMetadata);
+inline EbookPageDef* DeserializeEbookPageDef(char* data, size_t dataLen) {
+    auto s = std::string_view(data, dataLen);
+    return (EbookPageDef*)Deserialize(s, &gEbookPageDefMetadata);
 }
 
-inline EbookPageDef *DeserializeEbookPageDef(TxtNode* root)
-{
+inline EbookPageDef* DeserializeEbookPageDef(TxtNode* root) {
     return (EbookPageDef*)Deserialize(root, &gEbookPageDefMetadata);
 }
 
-inline uint8_t *SerializeEbookPageDef(EbookPageDef *val, size_t *dataLenOut)
-{
-    return Serialize((const uint8_t*)val, &gEbookPageDefMetadata, dataLenOut);
+inline OwnedData SerializeEbookPageDef(EbookPageDef* val) {
+    return Serialize((const uint8_t*)val, &gEbookPageDefMetadata);
 }
 
-inline void FreeEbookPageDef(EbookPageDef *val)
-{
+inline void FreeEbookPageDef(EbookPageDef* val) {
     FreeStruct((uint8_t*)val, &gEbookPageDefMetadata);
 }

@@ -1,4 +1,4 @@
-/* Copyright 2015 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2018 the SumatraPDF project authors (see AUTHORS file).
    License: GPLv3 */
 
 /* enum from windowState */
@@ -11,7 +11,7 @@ enum {
 
 namespace prefs {
 
-WCHAR *GetSettingsPath();
+WCHAR* GetSettingsPath();
 
 bool Load();
 bool Save();
@@ -22,4 +22,4 @@ void RegisterForFileChanges();
 void UnregisterForFileChanges();
 void UpdateGlobalPrefs(const CommandLineInfo& i);
 
-};
+}; // namespace prefs

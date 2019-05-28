@@ -1,9 +1,10 @@
-/* Copyright 2015 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2018 the SumatraPDF project authors (see AUTHORS file).
    License: Simplified BSD (see COPYING.BSD) */
 
-#include "BaseUtil.h"
-#include "BitManip.h"
-#include "Dict.h"
+#include "utils/BaseUtil.h"
+#include "utils/BitManip.h"
+#include "utils/Dict.h"
+#include "utils/ScopedWin.h"
 
 #include "Dia2Subset.h"
 //#include <Dia2.h>
@@ -153,7 +154,7 @@ static void GetInternedStringsReport(str::Str<char>& resOut)
 
 static void AddReportSepLine()
 {
-    if (g_report.Count() > 0)
+    if (g_report.size() > 0)
         g_report.Append("\n");
 }
 

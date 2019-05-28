@@ -1,10 +1,10 @@
-/* Copyright 2015 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2018 the SumatraPDF project authors (see AUTHORS file).
    License: GPLv3 */
 
-// utils
-#include "BaseUtil.h"
-// layout controllers
+#include "utils/BaseUtil.h"
+#include "utils/ScopedWin.h"
 #include "BaseEngine.h"
+#include "ProgressUpdateUI.h"
 #include "TextSelection.h"
 #include "TextSearch.h"
 
@@ -85,7 +85,7 @@ void TextSearch::SetSensitive(bool sensitive) {
 }
 
 void TextSearch::SetDirection(TextSearchDirection direction) {
-    bool forward = FIND_FORWARD == direction;
+    bool forward = TextSearchDirection::Forward == direction;
     if (forward == this->forward)
         return;
     this->forward = forward;
@@ -136,12 +136,14 @@ TextSearch::PageAndOffset TextSearch::MatchEnd(const WCHAR* start) const {
             /* characters are identical */;
         else if (str::IsWs(*match) && lookingAtWs)
             /* treat all whitespace as identical and end of page as whitespace.
-               The end of the document is NOT seen as whitespace */;
+               The end of the document is NOT seen as whitespace */
+            ;
         // TODO: Adobe Reader seems to have a more extensive list of
         //       normalizations - is there an easier way?
         else if (*match == '-' && (0x2010 <= *end && *end <= 0x2014))
             /* make HYPHEN-MINUS also match HYPHEN, NON-BREAKING HYPHEN,
-               FIGURE DASH, EN DASH and EM DASH (but not the other way around) */;
+               FIGURE DASH, EN DASH and EM DASH (but not the other way around) */
+            ;
         else if (*match == '\'' && (0x2018 <= *end && *end <= 0x201b))
             /* make APOSTROPHE also match LEFT/RIGHT SINGLE QUOTATION MARK */;
         else if (*match == '"' && (0x201c <= *end && *end <= 0x201f))

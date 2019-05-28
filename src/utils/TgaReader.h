@@ -1,4 +1,4 @@
-/* Copyright 2015 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2018 the SumatraPDF project authors (see AUTHORS file).
    License: Simplified BSD (see COPYING.BSD) */
 
 // Support for Truevision TGA files
@@ -7,9 +7,9 @@
 
 namespace tga {
 
-bool                HasSignature(const char *data, size_t len);
-Gdiplus::Bitmap *   ImageFromData(const char *data, size_t len);
+bool HasSignature(const char* data, size_t len);
+Gdiplus::Bitmap* ImageFromData(const char* data, size_t len);
 
-unsigned char *     SerializeBitmap(HBITMAP hbmp, size_t *bmpBytesOut);
+unsigned char* SerializeBitmap(HBITMAP hbmp, size_t* bmpBytesOut);
 
-}
+} // namespace tga

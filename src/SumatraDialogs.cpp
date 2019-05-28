@@ -1,9 +1,9 @@
-/* Copyright 2015 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2018 the SumatraPDF project authors (see AUTHORS file).
    License: GPLv3 */
 
-#include "BaseUtil.h"
-#include "DialogSizer.h"
-#include "WinUtil.h"
+#include "utils/BaseUtil.h"
+#include "wingui/DialogSizer.h"
+#include "utils/WinUtil.h"
 
 #include "SettingsStructs.h"
 #include "GlobalPrefs.h"
@@ -374,7 +374,7 @@ static INT_PTR CALLBACK Dialog_ChangeLanguage_Proc(HWND hDlg, UINT msg, WPARAM w
         }
         ListBox_SetCurSel(langList, itemToSelect);
         // the language list is meant to be laid out left-to-right
-        ToggleWindowStyle(langList, WS_EX_LAYOUTRTL, false, GWL_EXSTYLE);
+        ToggleWindowExStyle(langList, WS_EX_LAYOUTRTL, false);
         SetDlgItemText(hDlg, IDOK, _TR("OK"));
         SetDlgItemText(hDlg, IDCANCEL, _TR("Cancel"));
 
@@ -603,7 +603,7 @@ static INT_PTR CALLBACK Dialog_CustomZoom_Proc(HWND hDlg, UINT msg, WPARAM wPara
             CenterDialog(hDlg);
             SetFocus(GetDlgItem(hDlg, IDC_DEFAULT_ZOOM));
             return FALSE;
-        //] ACCESSKEY_GROUP Zoom Dialog
+            //] ACCESSKEY_GROUP Zoom Dialog
 
         case WM_COMMAND:
             switch (LOWORD(wParam)) {
@@ -721,7 +721,9 @@ static INT_PTR CALLBACK Dialog_Settings_Proc(HWND hDlg, UINT msg, WPARAM wParam,
                 const WCHAR* cmdLine = prefs->inverseSearchCmdLine;
                 AutoFreeW inverseSearch;
                 if (!cmdLine) {
-                    inverseSearch.Set(AutoDetectInverseSearchCommands(GetDlgItem(hDlg, IDC_CMDLINE)));
+                    HWND hwnd = GetDlgItem(hDlg, IDC_CMDLINE);
+                    WCHAR* cmd = AutoDetectInverseSearchCommands(hwnd);
+                    inverseSearch.Set(cmd);
                     cmdLine = inverseSearch;
                 }
                 // Find the index of the active command line
@@ -742,7 +744,7 @@ static INT_PTR CALLBACK Dialog_Settings_Proc(HWND hDlg, UINT msg, WPARAM wParam,
             CenterDialog(hDlg);
             SetFocus(GetDlgItem(hDlg, IDC_DEFAULT_LAYOUT));
             return FALSE;
-        //] ACCESSKEY_GROUP Settings Dialog
+            //] ACCESSKEY_GROUP Settings Dialog
 
         case WM_COMMAND:
             switch (LOWORD(wParam)) {
@@ -840,7 +842,7 @@ static INT_PTR CALLBACK Sheet_Print_Advanced_Proc(HWND hDlg, UINT msg, WPARAM wP
                     : data->scale == PrintScaleAdv::Shrink ? IDC_PRINT_SCALE_SHRINK : IDC_PRINT_SCALE_NONE);
 
             return FALSE;
-        //] ACCESSKEY_GROUP Advanced Print Tab
+            //] ACCESSKEY_GROUP Advanced Print Tab
 
         case WM_NOTIFY:
             if (((LPNMHDR)lParam)->code == PSN_APPLY) {
@@ -927,7 +929,7 @@ static INT_PTR CALLBACK Dialog_AddFav_Proc(HWND hDlg, UINT msg, WPARAM wParam, L
         WORD cmd = LOWORD(wParam);
         if (IDOK == cmd) {
             AutoFreeW name(win::GetText(GetDlgItem(hDlg, IDC_FAV_NAME_EDIT)));
-            str::TrimWS(name);
+            str::TrimWS(name, str::TrimOpt::Both);
             if (!str::IsEmpty(name.Get()))
                 data->favName = name.StealData();
             else

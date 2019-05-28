@@ -1,6 +1,7 @@
-#include "BaseUtil.h"
-#include "Dpi.h"
-#include "WinUtil.h"
+#include "utils/BaseUtil.h"
+#include "utils/ScopedWin.h"
+#include "utils/Dpi.h"
+#include "utils/WinUtil.h"
 
 #include "TabsCtrl.h"
 
@@ -63,8 +64,11 @@ enum class Tab {
 };
 
 static std::wstring wstrFromUtf8(const std::string& str) {
-    std::wstring_convert<std::codecvt_utf8_utf16<wchar_t>> converter;
-    return converter.from_bytes(str);
+    WCHAR* s = str::conv::FromUtf8(str.c_str());
+    ;
+    std::wstring res(s);
+    free(s);
+    return res;
 }
 
 TabItem::TabItem(const std::string& title, const std::string& toolTip) {

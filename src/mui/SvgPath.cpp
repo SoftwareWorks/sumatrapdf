@@ -1,4 +1,4 @@
-/* Copyright 2015 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2018 the SumatraPDF project authors (see AUTHORS file).
    License: Simplified BSD (see COPYING.BSD) */
 
 /*
@@ -24,10 +24,10 @@ write a pre-processing script that will convert them to something that we
 understand.
 */
 
-#include "BaseUtil.h"
-#include "GdiPlusUtil.h"
+#include "utils/BaseUtil.h"
+#include "utils/GdiPlusUtil.h"
 #include "SvgPath.h"
-#include "VecSegmented.h"
+#include "utils/VecSegmented.h"
 
 namespace svg {
 
@@ -140,7 +140,7 @@ static bool ParseSvgPathData(const char* s, VecSegmented<SvgPathInstr>& instr) {
         if (!s) {
             return false;
         }
-        instr.Append(i);
+        instr.push_back(i);
 
         s = skipWs(s);
     }
@@ -214,4 +214,4 @@ GraphicsPath* GraphicsPathFromPathData(const char* s) {
     }
     return gp;
 }
-}
+} // namespace svg

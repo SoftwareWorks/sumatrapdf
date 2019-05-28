@@ -1,13 +1,13 @@
-/* Copyright 2015 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2018 the SumatraPDF project authors (see AUTHORS file).
    License: GPLv3 */
 
-// utils
-#include "BaseUtil.h"
-#include "ArchUtil.h"
-#include "HtmlParserLookup.h"
-#include "HtmlPullParser.h"
-#include "Mui.h"
-// rendering engines
+#include "utils/BaseUtil.h"
+#include "utils/ScopedWin.h"
+#include "utils/Archive.h"
+#include "utils/HtmlParserLookup.h"
+#include "utils/HtmlPullParser.h"
+#include "mui/Mui.h"
+
 #include "BaseEngine.h"
 #include "EbookBase.h"
 #include "EbookDoc.h"
@@ -97,7 +97,7 @@ void Doc::Clear() {
     type = DocType::None;
     generic = nullptr;
     error = DocError::None;
-    filePath.Set(nullptr);
+    filePath.Reset();
 }
 
 // the caller should make sure there is a document object
@@ -166,35 +166,20 @@ WCHAR* Doc::GetProperty(DocumentProperty prop) const {
     }
 }
 
-const char* Doc::GetHtmlData(size_t& len) const {
+std::string_view Doc::GetHtmlData() const {
     switch (type) {
         case DocType::Epub:
-            return epubDoc->GetHtmlData(&len);
+            return epubDoc->GetHtmlData();
         case DocType::Fb2:
-            return fb2Doc->GetXmlData(&len);
-        case DocType::Mobi:
-            return mobiDoc->GetHtmlData(len);
+            return fb2Doc->GetXmlData();
+        case DocType::Mobi: {
+            return mobiDoc->GetHtmlData();
+        }
         case DocType::Pdb:
-            return palmDoc->GetHtmlData(&len);
+            return palmDoc->GetHtmlData();
         default:
             CrashIf(true);
             return nullptr;
-    }
-}
-
-size_t Doc::GetHtmlDataSize() const {
-    switch (type) {
-        case DocType::Epub:
-            return epubDoc->GetHtmlDataSize();
-        case DocType::Fb2:
-            return fb2Doc->GetXmlDataSize();
-        case DocType::Mobi:
-            return mobiDoc->GetHtmlDataSize();
-        case DocType::Pdb:
-            return palmDoc->GetHtmlDataSize();
-        default:
-            CrashIf(true);
-            return 0;
     }
 }
 
@@ -259,21 +244,23 @@ HtmlFormatter* Doc::CreateFormatter(HtmlFormatterArgs* args) const {
 
 Doc Doc::CreateFromFile(const WCHAR* filePath) {
     Doc doc;
-    if (EpubDoc::IsSupportedFile(filePath))
+    if (EpubDoc::IsSupportedFile(filePath)) {
         doc = Doc(EpubDoc::CreateFromFile(filePath));
-    else if (Fb2Doc::IsSupportedFile(filePath))
+    } else if (Fb2Doc::IsSupportedFile(filePath)) {
         doc = Doc(Fb2Doc::CreateFromFile(filePath));
-    else if (MobiDoc::IsSupportedFile(filePath)) {
+    } else if (MobiDoc::IsSupportedFile(filePath)) {
         doc = Doc(MobiDoc::CreateFromFile(filePath));
         // MobiDoc is also used for loading PalmDoc - don't expose that to Doc users, though
-        if (doc.mobiDoc && doc.mobiDoc->GetDocType() != Pdb_Mobipocket) {
+        if (doc.mobiDoc && doc.mobiDoc->GetDocType() != PdbDocType::Mobipocket) {
             doc.Delete();
             // .prc files can be both MobiDoc or PalmDoc
-            if (PalmDoc::IsSupportedFile(filePath))
+            if (PalmDoc::IsSupportedFile(filePath)) {
                 doc = Doc(PalmDoc::CreateFromFile(filePath));
+            }
         }
-    } else if (PalmDoc::IsSupportedFile(filePath))
+    } else if (PalmDoc::IsSupportedFile(filePath)) {
         doc = Doc(PalmDoc::CreateFromFile(filePath));
+    }
 
     // if failed to load and more specific error message hasn't been
     // set above, set a generic error message

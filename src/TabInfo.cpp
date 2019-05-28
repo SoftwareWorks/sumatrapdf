@@ -1,21 +1,20 @@
-/* Copyright 2015 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2018 the SumatraPDF project authors (see AUTHORS file).
    License: GPLv3 */
 
-// utils
-#include "BaseUtil.h"
-#include "FileUtil.h"
-#include "FileWatcher.h"
-#include "WinUtil.h"
-// rendering engines
+#include "utils/BaseUtil.h"
+#include "utils/ScopedWin.h"
+#include "utils/FileUtil.h"
+#include "utils/FileWatcher.h"
+#include "utils/WinUtil.h"
 #include "BaseEngine.h"
 #include "EngineManager.h"
-// layout controllers
 #include "SettingsStructs.h"
 #include "Controller.h"
 #include "ChmModel.h"
 #include "DisplayModel.h"
 #include "GlobalPrefs.h"
-// ui
+#include "ProgressUpdateUI.h"
+#include "Notifications.h"
 #include "SumatraPDF.h"
 #include "WindowInfo.h"
 #include "TabInfo.h"
@@ -78,7 +77,7 @@ bool LinkSaver::SaveEmbedded(const unsigned char* data, size_t len) {
     if (!ok) {
         return false;
     }
-    ok = file::WriteAll(dstFileName, data, len);
+    ok = file::WriteFile(dstFileName, data, len);
     if (ok && tab && IsUntrustedFile(tab->filePath, gPluginURL)) {
         file::SetZoneIdentifier(dstFileName);
     }

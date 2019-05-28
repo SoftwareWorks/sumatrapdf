@@ -1,4 +1,4 @@
-/* Copyright 2015 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2018 the SumatraPDF project authors (see AUTHORS file).
    License: Simplified BSD (see COPYING.BSD) */
 
 // include BaseUtil.h instead of including directly
@@ -7,9 +7,9 @@
 template <typename T>
 class ScopedMem {
   public:
-    T* ptr;
+    T* ptr = nullptr;
 
-    ScopedMem() : ptr(nullptr) {}
+    ScopedMem() = default;
     explicit ScopedMem(T* ptr) : ptr(ptr) {}
     ~ScopedMem() { free(ptr); }
     void Set(T* newPtr) {
@@ -25,48 +25,13 @@ class ScopedMem {
     operator T*() const { return ptr; }
 };
 
-template <typename T>
-class AutoFreeStr : public ScopedMem<T> {
-  public:
-    AutoFreeStr() { this->ptr = nullptr; }
-    explicit AutoFreeStr(T* ptr) { this->ptr = ptr; }
-    void SetCopy(const T* newPtr) {
-        free(ptr);
-        ptr = nullptr;
-        if (newPtr) {
-            ptr = str::Dup(newPtr);
-        }
-    }
-};
-
-typedef AutoFreeStr<char> AutoFree;
-typedef AutoFreeStr<WCHAR> AutoFreeW;
-
-class ScopedCritSec {
-    CRITICAL_SECTION* cs;
-
-  public:
-    explicit ScopedCritSec(CRITICAL_SECTION* cs) : cs(cs) { EnterCriticalSection(cs); }
-    ~ScopedCritSec() { LeaveCriticalSection(cs); }
-};
-
-class ScopedHandle {
-    HANDLE handle;
-
-  public:
-    explicit ScopedHandle(HANDLE handle) : handle(handle) {}
-    ~ScopedHandle() { CloseHandle(handle); }
-    operator HANDLE() const { return handle; }
-    bool IsValid() const { return handle != NULL && handle != INVALID_HANDLE_VALUE; }
-};
-
 // deletes any object at the end of the scope
 template <class T>
 class ScopedPtr {
-    T* obj;
+    T* obj = nullptr;
 
   public:
-    ScopedPtr() : obj(nullptr) {}
+    ScopedPtr() = default;
     explicit ScopedPtr(T* obj) : obj(obj) {}
     ~ScopedPtr() { delete obj; }
     T* Detach() {
@@ -82,139 +47,47 @@ class ScopedPtr {
     }
 };
 
-template <class T>
-class ScopedComPtr {
-  protected:
-    T* ptr;
-
-  public:
-    ScopedComPtr() : ptr(nullptr) {}
-    explicit ScopedComPtr(T* ptr) : ptr(ptr) {}
-    ~ScopedComPtr() {
-        if (ptr)
-            ptr->Release();
-    }
-    bool Create(const CLSID clsid) {
-        CrashIf(ptr);
-        if (ptr)
-            return false;
-        HRESULT hr = CoCreateInstance(clsid, nullptr, CLSCTX_ALL, IID_PPV_ARGS(&ptr));
-        return SUCCEEDED(hr);
-    }
-    operator T*() const { return ptr; }
-    T** operator&() { return &ptr; }
-    T* operator->() const { return ptr; }
-    T* operator=(T* newPtr) {
-        if (ptr)
-            ptr->Release();
-        return (ptr = newPtr);
-    }
-};
-
-template <class T>
-class ScopedComQIPtr {
-  protected:
-    T* ptr;
-
-  public:
-    ScopedComQIPtr() : ptr(nullptr) {}
-    explicit ScopedComQIPtr(IUnknown* unk) {
-        HRESULT hr = unk->QueryInterface(&ptr);
-        if (FAILED(hr))
-            ptr = nullptr;
-    }
-    ~ScopedComQIPtr() {
-        if (ptr)
-            ptr->Release();
-    }
-    bool Create(const CLSID clsid) {
-        CrashIf(ptr);
-        if (ptr)
-            return false;
-        HRESULT hr = CoCreateInstance(clsid, nullptr, CLSCTX_ALL, IID_PPV_ARGS(&ptr));
-        return SUCCEEDED(hr);
-    }
-    T* operator=(IUnknown* newUnk) {
-        if (ptr)
-            ptr->Release();
-        HRESULT hr = newUnk->QueryInterface(&ptr);
-        if (FAILED(hr))
-            ptr = nullptr;
-        return ptr;
-    }
-    operator T*() const { return ptr; }
-    T** operator&() { return &ptr; }
-    T* operator->() const { return ptr; }
-    T* operator=(T* newPtr) {
-        if (ptr)
-            ptr->Release();
-        return (ptr = newPtr);
-    }
-};
-
 template <typename T>
-class ScopedGdiObj {
-    T obj;
-
+class AutoFreeStr {
   public:
-    explicit ScopedGdiObj(T obj) : obj(obj) {}
-    ~ScopedGdiObj() { DeleteObject(obj); }
-    operator T() const { return obj; }
-};
-typedef ScopedGdiObj<HFONT> ScopedFont;
-typedef ScopedGdiObj<HPEN> ScopedPen;
-typedef ScopedGdiObj<HBRUSH> ScopedBrush;
+    T* ptr = nullptr;
 
-class ScopedHDC {
-    HDC hdc;
-
-  public:
-    explicit ScopedHDC(HDC hdc) : hdc(hdc) {}
-    ~ScopedHDC() { DeleteDC(hdc); }
-    operator HDC() const { return hdc; }
-};
-
-class ScopedHdcSelect {
-    HDC hdc;
-    HGDIOBJ prev;
-
-  public:
-    ScopedHdcSelect(HDC hdc, HGDIOBJ obj) : hdc(hdc) { prev = SelectObject(hdc, obj); }
-    ~ScopedHdcSelect() { SelectObject(hdc, prev); }
-};
-
-class ScopedCom {
-  public:
-    ScopedCom() { (void)CoInitialize(nullptr); }
-    ~ScopedCom() { CoUninitialize(); }
-};
-
-class ScopedOle {
-  public:
-    ScopedOle() { (void)OleInitialize(nullptr); }
-    ~ScopedOle() { OleUninitialize(); }
-};
-
-class ScopedGdiPlus {
-  protected:
-    Gdiplus::GdiplusStartupInput si;
-    Gdiplus::GdiplusStartupOutput so;
-    ULONG_PTR token, hookToken;
-    bool noBgThread;
-
-  public:
-    // suppress the GDI+ background thread when initiating in WinMain,
-    // as that thread causes DDE messages to be sent too early and
-    // thus causes unexpected timeouts
-    explicit ScopedGdiPlus(bool inWinMain = false) : noBgThread(inWinMain) {
-        si.SuppressBackgroundThread = noBgThread;
-        Gdiplus::GdiplusStartup(&token, &si, &so);
-        if (noBgThread)
-            so.NotificationHook(&hookToken);
+    AutoFreeStr() = default;
+    explicit AutoFreeStr(T* ptr) : ptr(ptr) {}
+    ~AutoFreeStr() { free(this->ptr); }
+    void Set(T* newPtr) {
+        free(this->ptr);
+        this->ptr = newPtr;
     }
-    ~ScopedGdiPlus() {
-        if (noBgThread)
-            so.NotificationUnhook(hookToken);
-        Gdiplus::GdiplusShutdown(token);
+    void Set(const T* newPtr) {
+        free(this->ptr);
+        this->ptr = const_cast<T*>(newPtr);
     }
+    void SetCopy(const T* newPtr) {
+        free(this->ptr);
+        this->ptr = nullptr;
+        if (newPtr) {
+            this->ptr = str::Dup(newPtr);
+        }
+    }
+    operator T*() const { return this->ptr; }
+    T* Get() const { return this->ptr; }
+    T* StealData() {
+        T* tmp = this->ptr;
+        this->ptr = nullptr;
+        return tmp;
+    }
+    void Reset() {
+        free(this->ptr);
+        this->ptr = nullptr;
+    }
+
+    // TODO: only valid for T = char
+    std::string_view AsView() const { return {this->ptr, str::Len(this->ptr)}; }
 };
+
+typedef AutoFreeStr<char> AutoFree;
+
+#if OS_WIN
+typedef AutoFreeStr<WCHAR> AutoFreeW;
+#endif

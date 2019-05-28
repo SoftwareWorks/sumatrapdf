@@ -1,10 +1,11 @@
-/* Copyright 2015 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2018 the SumatraPDF project authors (see AUTHORS file).
    License: GPLv3 */
 
-#include "BaseUtil.h"
-#include "FileUtil.h"
-#include "UITask.h"
-#include "WinUtil.h"
+#include "utils/BaseUtil.h"
+#include "utils/ScopedWin.h"
+#include "utils/FileUtil.h"
+#include "utils/UITask.h"
+#include "utils/WinUtil.h"
 
 #include "BaseEngine.h"
 #include "EngineManager.h"
@@ -14,14 +15,14 @@
 #include "ChmModel.h"
 #include "DisplayModel.h"
 #include "GlobalPrefs.h"
+#include "ProgressUpdateUI.h"
 #include "TextSelection.h"
 #include "TextSearch.h"
-
+#include "Notifications.h"
 #include "SumatraPDF.h"
 #include "WindowInfo.h"
 #include "TabInfo.h"
 #include "AppUtil.h"
-#include "Notifications.h"
 #include "Print.h"
 #include "Selection.h"
 #include "SumatraDialogs.h"
@@ -66,9 +67,9 @@ class AbortCookieManager {
     CRITICAL_SECTION cookieAccess;
 
   public:
-    AbortCookie* cookie;
+    AbortCookie* cookie = nullptr;
 
-    AbortCookieManager() : cookie(nullptr) { InitializeCriticalSection(&cookieAccess); }
+    AbortCookieManager() { InitializeCriticalSection(&cookieAccess); }
     ~AbortCookieManager() {
         Clear();
         DeleteCriticalSection(&cookieAccess);
@@ -93,9 +94,9 @@ class AbortCookieManager {
 
 static RectD BoundSelectionOnPage(const Vec<SelectionOnPage>& sel, int pageNo) {
     RectD bounds;
-    for (size_t i = 0; i < sel.Count(); i++) {
-        if (sel.At(i).pageNo == pageNo) {
-            bounds = bounds.Union(sel.At(i).rect);
+    for (size_t i = 0; i < sel.size(); i++) {
+        if (sel.at(i).pageNo == pageNo) {
+            bounds = bounds.Union(sel.at(i).rect);
         }
     }
     return bounds;
@@ -126,12 +127,12 @@ static bool PrintToDevice(const PrintData& pd, ProgressUpdateUI* progressUI = nu
     }
 
     int current = 1, total = 0;
-    if (pd.sel.Count() == 0) {
-        for (size_t i = 0; i < pd.ranges.Count(); i++) {
-            if (pd.ranges.At(i).nToPage < pd.ranges.At(i).nFromPage) {
-                total += pd.ranges.At(i).nFromPage - pd.ranges.At(i).nToPage + 1;
+    if (pd.sel.size() == 0) {
+        for (size_t i = 0; i < pd.ranges.size(); i++) {
+            if (pd.ranges.at(i).nToPage < pd.ranges.at(i).nFromPage) {
+                total += pd.ranges.at(i).nFromPage - pd.ranges.at(i).nToPage + 1;
             } else {
-                total += pd.ranges.At(i).nToPage - pd.ranges.At(i).nFromPage + 1;
+                total += pd.ranges.at(i).nToPage - pd.ranges.at(i).nFromPage + 1;
             }
         }
     } else {
@@ -178,7 +179,7 @@ static bool PrintToDevice(const PrintData& pd, ProgressUpdateUI* progressUI = nu
         bPrintPortrait = false;
     }
 
-    if (pd.sel.Count() > 0) {
+    if (pd.sel.size() > 0) {
         for (int pageNo = 1; pageNo <= engine.PageCount(); pageNo++) {
             RectD bounds = BoundSelectionOnPage(pd.sel, pageNo);
             if (bounds.IsEmpty()) {
@@ -201,12 +202,12 @@ static bool PrintToDevice(const PrintData& pd, ProgressUpdateUI* progressUI = nu
                 zoom = dpiFactor;
             }
 
-            for (size_t i = 0; i < pd.sel.Count(); i++) {
-                if (pd.sel.At(i).pageNo != pageNo) {
+            for (size_t i = 0; i < pd.sel.size(); i++) {
+                if (pd.sel.at(i).pageNo != pageNo) {
                     continue;
                 }
 
-                RectD* clipRegion = &pd.sel.At(i).rect;
+                RectD* clipRegion = &pd.sel.at(i).rect;
                 PointI offset((int)((clipRegion->x - bounds.x) * zoom), (int)((clipRegion->y - bounds.y) * zoom));
                 if (pd.advData.scale != PrintScaleAdv::None) {
                     // center the selection on the physical paper
@@ -218,8 +219,8 @@ static bool PrintToDevice(const PrintData& pd, ProgressUpdateUI* progressUI = nu
                 short shrink = 1;
                 do {
                     RenderedBitmap* bmp =
-                        engine.RenderBitmap(pd.sel.At(i).pageNo, zoom / shrink, pd.rotation, clipRegion, Target_Print,
-                                            abortCookie ? &abortCookie->cookie : nullptr);
+                        engine.RenderBitmap(pd.sel.at(i).pageNo, zoom / shrink, pd.rotation, clipRegion,
+                                            RenderTarget::Print, abortCookie ? &abortCookie->cookie : nullptr);
                     if (abortCookie) {
                         abortCookie->Clear();
                     }
@@ -245,9 +246,9 @@ static bool PrintToDevice(const PrintData& pd, ProgressUpdateUI* progressUI = nu
     }
 
     // print all the pages the user requested
-    for (size_t i = 0; i < pd.ranges.Count(); i++) {
-        int dir = pd.ranges.At(i).nFromPage > pd.ranges.At(i).nToPage ? -1 : 1;
-        for (DWORD pageNo = pd.ranges.At(i).nFromPage; pageNo != pd.ranges.At(i).nToPage + dir; pageNo += dir) {
+    for (size_t i = 0; i < pd.ranges.size(); i++) {
+        int dir = pd.ranges.at(i).nFromPage > pd.ranges.at(i).nToPage ? -1 : 1;
+        for (DWORD pageNo = pd.ranges.at(i).nFromPage; pageNo != pd.ranges.at(i).nToPage + dir; pageNo += dir) {
             if ((PrintRangeAdv::Even == pd.advData.range && pageNo % 2 != 0) ||
                 (PrintRangeAdv::Odd == pd.advData.range && pageNo % 2 == 0)) {
                 continue;
@@ -287,7 +288,7 @@ static bool PrintToDevice(const PrintData& pd, ProgressUpdateUI* progressUI = nu
             if (pd.advData.scale != PrintScaleAdv::None) {
                 // make sure to fit all content into the printable area when scaling
                 // and the whole document page on the physical paper
-                RectD rect = engine.PageContentBox(pageNo, Target_Print);
+                RectD rect = engine.PageContentBox(pageNo, RenderTarget::Print);
                 geomutil::RectT<float> cbox = engine.Transform(rect, pageNo, 1.0, rotation).Convert<float>();
                 zoom = std::min((float)printable.dx / cbox.dx,
                                 std::min((float)printable.dy / cbox.dy,
@@ -317,7 +318,7 @@ static bool PrintToDevice(const PrintData& pd, ProgressUpdateUI* progressUI = nu
             bool ok = false;
             short shrink = 1;
             do {
-                RenderedBitmap* bmp = engine.RenderBitmap(pageNo, zoom / shrink, rotation, nullptr, Target_Print,
+                RenderedBitmap* bmp = engine.RenderBitmap(pageNo, zoom / shrink, rotation, nullptr, RenderTarget::Print,
                                                           abortCookie ? &abortCookie->cookie : nullptr);
                 if (abortCookie) {
                     abortCookie->Clear();
@@ -356,11 +357,13 @@ class PrintThreadData : public ProgressUpdateUI {
     PrintThreadData(WindowInfo* win, PrintData* data) {
         this->win = win;
         this->data = data;
-        wnd = new NotificationWnd(win->hwndCanvas, L"", _TR("Printing page %d of %d..."),
-                                  [this](NotificationWnd* wnd) { this->RemoveNotification(wnd); });
+        wnd = new NotificationWnd(win->hwndCanvas, 0);
+        wnd->wndRemovedCb = [this](NotificationWnd* wnd) { this->RemoveNotification(wnd); };
+        wnd->Create(L"", _TR("Printing page %d of %d..."));
+
         // don't use a groupId for this notification so that
         // multiple printing notifications could coexist between tabs
-        win->notifications->Add(wnd);
+        win->notifications->Add(wnd, 0);
     }
 
     // called when printing has been canceled
@@ -652,19 +655,23 @@ static short GetPaperSize(BaseEngine* engine) {
     SizeD size = engine->Transform(mediabox, 1, 1.0f / engine->GetFileDPI(), 0).Size();
 
     switch (GetPaperFormat(size)) {
-        case Paper_A4:
-            return DMPAPER_A4;
-        case Paper_A3:
+        case PaperFormat::A2:
+            return DMPAPER_A2;
+        case PaperFormat::A3:
             return DMPAPER_A3;
-        case Paper_A5:
+        case PaperFormat::A4:
+            return DMPAPER_A4;
+        case PaperFormat::A5:
             return DMPAPER_A5;
-        case Paper_Letter:
+        case PaperFormat::A6:
+            return DMPAPER_A6;
+        case PaperFormat::Letter:
             return DMPAPER_LETTER;
-        case Paper_Legal:
+        case PaperFormat::Legal:
             return DMPAPER_LEGAL;
-        case Paper_Tabloid:
+        case PaperFormat::Tabloid:
             return DMPAPER_TABLOID;
-        case Paper_Statement:
+        case PaperFormat::Statement:
             return DMPAPER_STATEMENT;
         default:
             return 0;
@@ -684,6 +691,9 @@ static short GetPaperByName(const WCHAR* papername) {
     if (str::EqI(papername, L"statement")) {
         return DMPAPER_STATEMENT;
     }
+    if (str::EqI(papername, L"A2")) {
+        return DMPAPER_A2;
+    }
     if (str::EqI(papername, L"A3")) {
         return DMPAPER_A3;
     }
@@ -692,6 +702,9 @@ static short GetPaperByName(const WCHAR* papername) {
     }
     if (str::EqI(papername, L"A5")) {
         return DMPAPER_A5;
+    }
+    if (str::EqI(papername, L"A6")) {
+        return DMPAPER_A6;
     }
     return 0;
 }
@@ -731,50 +744,58 @@ static void ApplyPrintSettings(const WCHAR* printerName, const WCHAR* settings, 
         rangeList.Split(settings, L",", true);
     }
 
-    for (size_t i = 0; i < rangeList.Count(); i++) {
+    for (size_t i = 0; i < rangeList.size(); i++) {
         int val;
         PRINTPAGERANGE pr = {0};
-        if (str::Parse(rangeList.At(i), L"%d-%d%$", &pr.nFromPage, &pr.nToPage)) {
+        if (str::Parse(rangeList.at(i), L"%d-%d%$", &pr.nFromPage, &pr.nToPage)) {
             pr.nFromPage = limitValue(pr.nFromPage, (DWORD)1, (DWORD)pageCount);
             pr.nToPage = limitValue(pr.nToPage, (DWORD)1, (DWORD)pageCount);
             ranges.Append(pr);
-        } else if (str::Parse(rangeList.At(i), L"%d%$", &pr.nFromPage)) {
+        } else if (str::Parse(rangeList.at(i), L"%d%$", &pr.nFromPage)) {
             pr.nFromPage = pr.nToPage = limitValue(pr.nFromPage, (DWORD)1, (DWORD)pageCount);
             ranges.Append(pr);
-        } else if (str::EqI(rangeList.At(i), L"even")) {
+        } else if (str::EqI(rangeList.at(i), L"even")) {
             advanced.range = PrintRangeAdv::Even;
-        } else if (str::EqI(rangeList.At(i), L"odd")) {
+        } else if (str::EqI(rangeList.at(i), L"odd")) {
             advanced.range = PrintRangeAdv::Odd;
-        } else if (str::EqI(rangeList.At(i), L"noscale")) {
+        } else if (str::EqI(rangeList.at(i), L"noscale")) {
             advanced.scale = PrintScaleAdv::None;
-        } else if (str::EqI(rangeList.At(i), L"shrink")) {
+        } else if (str::EqI(rangeList.at(i), L"shrink")) {
             advanced.scale = PrintScaleAdv::Shrink;
-        } else if (str::EqI(rangeList.At(i), L"fit")) {
+        } else if (str::EqI(rangeList.at(i), L"fit")) {
             advanced.scale = PrintScaleAdv::Fit;
-        } else if (str::EqI(rangeList.At(i), L"portrait")) {
+        } else if (str::EqI(rangeList.at(i), L"portrait")) {
             advanced.rotation = PrintRotationAdv::Portrait;
-        } else if (str::EqI(rangeList.At(i), L"landscape")) {
+        } else if (str::EqI(rangeList.at(i), L"landscape")) {
             advanced.rotation = PrintRotationAdv::Landscape;
-        } else if (str::Parse(rangeList.At(i), L"%dx%$", &val) && 0 < val && val < 1000) {
+        } else if (str::Parse(rangeList.at(i), L"%dx%$", &val) && 0 < val && val < 1000) {
             devMode->dmCopies = (short)val;
-        } else if (str::EqI(rangeList.At(i), L"simplex")) {
+            devMode->dmFields |= DM_COPIES;
+        } else if (str::EqI(rangeList.at(i), L"simplex")) {
             devMode->dmDuplex = DMDUP_SIMPLEX;
-        } else if (str::EqI(rangeList.At(i), L"duplex") || str::EqI(rangeList.At(i), L"duplexlong")) {
+            devMode->dmFields |= DM_DUPLEX;
+        } else if (str::EqI(rangeList.at(i), L"duplex") || str::EqI(rangeList.at(i), L"duplexlong")) {
             devMode->dmDuplex = DMDUP_VERTICAL;
-        } else if (str::EqI(rangeList.At(i), L"duplexshort")) {
+            devMode->dmFields |= DM_DUPLEX;
+        } else if (str::EqI(rangeList.at(i), L"duplexshort")) {
             devMode->dmDuplex = DMDUP_HORIZONTAL;
-        } else if (str::EqI(rangeList.At(i), L"color")) {
+            devMode->dmFields |= DM_DUPLEX;
+        } else if (str::EqI(rangeList.at(i), L"color")) {
             devMode->dmColor = DMCOLOR_COLOR;
-        } else if (str::EqI(rangeList.At(i), L"monochrome")) {
+            devMode->dmFields |= DM_COLOR;
+        } else if (str::EqI(rangeList.at(i), L"monochrome")) {
             devMode->dmColor = DMCOLOR_MONOCHROME;
-        } else if (str::StartsWithI(rangeList.At(i), L"bin=")) {
-            devMode->dmDefaultSource = GetPaperSourceByName(printerName, rangeList.At(i) + 4, devMode);
-        } else if (str::StartsWithI(rangeList.At(i), L"paper=")) {
-            devMode->dmPaperSize = GetPaperByName(rangeList.At(i) + 6);
+            devMode->dmFields |= DM_COLOR;
+        } else if (str::StartsWithI(rangeList.at(i), L"bin=")) {
+            devMode->dmDefaultSource = GetPaperSourceByName(printerName, rangeList.at(i) + 4, devMode);
+            devMode->dmFields |= DM_DEFAULTSOURCE;
+        } else if (str::StartsWithI(rangeList.at(i), L"paper=")) {
+            devMode->dmPaperSize = GetPaperByName(rangeList.at(i) + 6);
+            devMode->dmFields |= DM_PAPERSIZE;
         }
     }
 
-    if (ranges.Count() == 0) {
+    if (ranges.size() == 0) {
         PRINTPAGERANGE pr = {1, (DWORD)pageCount};
         ranges.Append(pr);
     }
@@ -837,7 +858,7 @@ bool PrintFile(BaseEngine* engine, WCHAR* printerName, bool displayErrors, const
         }
         goto Exit;
     }
-    devMode = (LPDEVMODE)calloc(structSize, 1);
+    devMode = AllocStruct<DEVMODE>();
 
     // Get the default DevMode for the printer and modify it for your needs.
     returnCode = DocumentProperties(nullptr, printer, printerName, devMode, /* The address of the buffer to fill. */

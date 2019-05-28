@@ -1,4 +1,4 @@
-/* Copyright 2015 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2018 the SumatraPDF project authors (see AUTHORS file).
    License: Simplified BSD (see COPYING.BSD) */
 
 /*
@@ -45,7 +45,7 @@ enum {
     MaxArgs = 32 + 8
 };
 
-enum Type {
+enum class Type {
     FormatStr, // from format string
     Char,
     Int,
@@ -74,38 +74,38 @@ struct Arg {
         int i;
         float f;
         double d;
-        const char *s;
-        const WCHAR *ws;
+        const char* s;
+        const WCHAR* ws;
     };
 };
 
 class Fmt {
   public:
-    Fmt(const char *fmt);
-    Fmt &i(int);
-    Fmt &s(const char *);
-    Fmt &s(const WCHAR *);
-    Fmt &c(char);
-    Fmt &f(float);
-    Fmt &f(double);
+    Fmt(const char* fmt);
+    Fmt& i(int);
+    Fmt& s(const char*);
+    Fmt& s(const WCHAR*);
+    Fmt& c(char);
+    Fmt& f(float);
+    Fmt& f(double);
 
-    Fmt &ParseFormat(const char *fmt);
-    Fmt &Reset();
-    char *Get();
-    char *GetDup();
+    Fmt& ParseFormat(const char* fmt);
+    Fmt& Reset();
+    char* Get();
+    char* GetDup();
 
     bool isOk; // true if mismatch between formatting instruction and args
 
   private:
-    const char *parseArgDef(const char *fmt);
-    void addFormatStr(const char *s, size_t len);
-    const char *parseArgDefPerc(const char *);
-    const char *parseArgDefPositional(const char *);
-    Fmt &addArgType(Type t);
+    const char* parseArgDef(const char* fmt);
+    void addFormatStr(const char* s, size_t len);
+    const char* parseArgDefPerc(const char*);
+    const char* parseArgDefPositional(const char*);
+    Fmt& addArgType(Type t);
     void serializeInst(int n);
 
     DWORD threadId;
-    const char *format;
+    const char* format;
     Inst instructions[MaxInstructions];
     int nInst;
     Arg args[MaxArgs];
@@ -116,4 +116,4 @@ class Fmt {
     int currArgFromFormatNo; // counts from the end of args
     str::Str<char> res;
 };
-}
+} // namespace fmt

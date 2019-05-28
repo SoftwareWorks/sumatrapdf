@@ -1,12 +1,14 @@
-/* Copyright 2015 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2018 the SumatraPDF project authors (see AUTHORS file).
    License: Simplified BSD (see COPYING.BSD) */
 
 #include "BaseUtil.h"
+#include <mlang.h>
+
 #include "BitManip.h"
+#include "ScopedWin.h"
 #include "FileUtil.h"
 #include "WinDynCalls.h"
 #include "WinUtil.h"
-#include <mlang.h>
 
 #include "DebugLog.h"
 
@@ -486,6 +488,22 @@ IDataObject* GetDataObjectForFile(const WCHAR* filePath, HWND hwnd) {
     return pDataObject;
 }
 
+bool IsKeyPressed(int key) {
+    return GetKeyState(key) & 0x8000 ? true : false;
+}
+
+bool IsShiftPressed() {
+    return IsKeyPressed(VK_SHIFT);
+}
+
+bool IsAltPressed() {
+    return IsKeyPressed(VK_MENU);
+}
+
+bool IsCtrlPressed() {
+    return IsKeyPressed(VK_CONTROL);
+}
+
 // The result value contains major and minor version in the high resp. the low WORD
 DWORD GetFileVersion(const WCHAR* path) {
     DWORD fileVersion = 0;
@@ -657,6 +675,10 @@ SizeI TextSizeInDC(HDC hdc, const WCHAR* txt) {
     return SizeI(sz.cx, sz.cy);
 }
 
+bool IsFocused(HWND hwnd) {
+    return GetFocus() == hwnd;
+}
+
 bool IsCursorOverWindow(HWND hwnd) {
     POINT pt;
     GetCursorPos(&pt);
@@ -765,15 +787,27 @@ bool CopyImageToClipboard(HBITMAP hbmp, bool appendOnly) {
     return ok;
 }
 
-void ToggleWindowStyle(HWND hwnd, DWORD flag, bool enable, int type) {
+static void ToggleWindowStyle(HWND hwnd, DWORD flags, bool enable, int type) {
     DWORD style = GetWindowLong(hwnd, type);
     DWORD newStyle;
     if (enable)
-        newStyle = style | flag;
+        newStyle = style | flags;
     else
-        newStyle = style & ~flag;
+        newStyle = style & ~flags;
     if (newStyle != style)
         SetWindowLong(hwnd, type, newStyle);
+}
+
+void ToggleWindowStyle(HWND hwnd, DWORD flags, bool enable) {
+    ToggleWindowStyle(hwnd, flags, enable, GWL_STYLE);
+}
+
+void ToggleWindowExStyle(HWND hwnd, DWORD flags, bool enable) {
+    ToggleWindowStyle(hwnd, flags, enable, GWL_EXSTYLE);
+}
+
+void SetRtl(HWND hwnd, bool isRtl) {
+    ToggleWindowExStyle(hwnd, WS_EX_LAYOUTRTL | WS_EX_NOINHERITLAYOUT, isRtl);
 }
 
 RectI ChildPosWithinParent(HWND hwnd) {
@@ -831,7 +865,7 @@ DoubleBuffer::~DoubleBuffer() {
 }
 
 void DoubleBuffer::Flush(HDC hdc) {
-    assert(hdc != hdcBuffer);
+    AssertCrash(hdc != hdcBuffer);
     if (hdcBuffer)
         BitBlt(hdc, rect.x, rect.y, rect.dx, rect.dy, hdcBuffer, 0, 0, SRCCOPY);
 }
@@ -908,8 +942,8 @@ const WCHAR* ToSafeString(AutoFreeW& s) {
     s.Set(str::Replace(str, L"&", L"&&"));
     return s.Get();
 }
-}
-}
+} // namespace menu
+} // namespace win
 
 HFONT CreateSimpleFont(HDC hdc, const WCHAR* fontName, int fontSize) {
     LOGFONT lf = {0};
@@ -983,17 +1017,57 @@ static HRESULT GetDataFromStream(IStream* stream, void** data, ULONG* len) {
     return S_OK;
 }
 
-void* GetDataFromStream(IStream* stream, size_t* len, HRESULT* res_opt) {
-    void* data;
+OwnedData GetDataFromStream(IStream* stream, HRESULT* resOpt) {
+    void* data = nullptr;
     ULONG size;
     HRESULT res = GetDataFromStream(stream, &data, &size);
-    if (len)
-        *len = size;
-    if (res_opt)
-        *res_opt = res;
-    if (FAILED(res))
+    if (resOpt) {
+        *resOpt = res;
+    }
+    if (FAILED(res)) {
+        free(data);
+        return {};
+    }
+    return OwnedData((char*)data, (size_t)size);
+}
+
+void* GetDataFromStream(IStream* stream, size_t* len, HRESULT* resOpt) {
+    void* data = nullptr;
+    ULONG size;
+    HRESULT res = GetDataFromStream(stream, &data, &size);
+    if (FAILED(res)) {
+        free(data);
         return nullptr;
+    }
+    if (len) {
+        *len = size;
+    }
+    if (resOpt) {
+        *resOpt = res;
+    }
     return data;
+}
+
+OwnedData GetStreamOrFileData(IStream* stream, const WCHAR* filePath) {
+    if (stream) {
+        OwnedData data = GetDataFromStream(stream);
+        return data;
+    }
+    if (!filePath) {
+        return {};
+    }
+    return file::ReadFile(filePath);
+}
+
+u8* GetStreamOrFileData(IStream* stream, const WCHAR* filePath, size_t* cbCount) {
+    OwnedData data = GetStreamOrFileData(stream, filePath);
+    if (data.IsEmpty()) {
+        return nullptr;
+    }
+    if (cbCount) {
+        *cbCount = data.size;
+    }
+    return (u8*)data.Get();
 }
 
 bool ReadDataFromStream(IStream* stream, void* buffer, size_t len, size_t offset) {
@@ -1092,7 +1166,7 @@ bool HasFrameThickness(HWND hwnd) {
 bool HasCaption(HWND hwnd) {
     return bit::IsMaskSet(GetWindowLong(hwnd, GWL_STYLE), WS_CAPTION);
 }
-}
+} // namespace win
 
 SizeI GetBitmapSize(HBITMAP hbmp) {
     BITMAP bmpInfo;
@@ -1124,8 +1198,8 @@ static bool IsPalettedBitmap(DIBSECTION& info, int nBytes) {
 COLORREF GetPixel(BitmapPixels* bitmap, int x, int y) {
     CrashIf(x < 0 || x >= bitmap->size.dx);
     CrashIf(y < 0 || y >= bitmap->size.dy);
-    uint8* pixels = bitmap->pixels;
-    uint8* pixel = pixels + y * bitmap->nBytesPerRow + x * bitmap->nBytesPerPixel;
+    uint8_t* pixels = bitmap->pixels;
+    uint8_t* pixel = pixels + y * bitmap->nBytesPerRow + x * bitmap->nBytesPerPixel;
     // color order in DIB is blue-green-red-alpha
     COLORREF c = 0;
     if (3 == bitmap->nBytesPerPixel) {
@@ -1185,7 +1259,7 @@ BitmapPixels* GetBitmapPixels(HBITMAP hbmp) {
 
     HDC hdc = CreateCompatibleDC(nullptr);
     int bmpBytes = size.dx * size.dy * 4;
-    ScopedMem<uint8> bmpData((uint8*)malloc(bmpBytes));
+    ScopedMem<uint8_t> bmpData((uint8_t*)malloc(bmpBytes));
     CrashIf(!bmpData);
 
     if (!GetDIBits(hdc, hbmp, 0, size.dy, bmpData, &bmi, DIB_RGB_COLORS)) {
@@ -1215,10 +1289,10 @@ void UpdateBitmapColors(HBITMAP hbmp, COLORREF textColor, COLORREF bgColor) {
     if (ret >= sizeof(info.dsBm) && info.dsBm.bmBits && 32 == info.dsBm.bmBitsPixel &&
         size.dx * 4 == info.dsBm.bmWidthBytes) {
         int bmpBytes = size.dx * size.dy * 4;
-        uint8* bmpData = (uint8*)info.dsBm.bmBits;
+        uint8_t* bmpData = (uint8_t*)info.dsBm.bmBits;
         for (int i = 0; i < bmpBytes; i++) {
             int k = i % 4;
-            bmpData[i] = (uint8)(base[k] + mul255(bmpData[i], diff[k]));
+            bmpData[i] = (uint8_t)(base[k] + mul255(bmpData[i], diff[k]));
         }
         return;
     }
@@ -1226,11 +1300,11 @@ void UpdateBitmapColors(HBITMAP hbmp, COLORREF textColor, COLORREF bgColor) {
     // for mapped 24-bit DI bitmaps: directly access the pixel data
     if (ret >= sizeof(info.dsBm) && info.dsBm.bmBits && 24 == info.dsBm.bmBitsPixel &&
         info.dsBm.bmWidthBytes >= size.dx * 3) {
-        uint8* bmpData = (uint8*)info.dsBm.bmBits;
+        uint8_t* bmpData = (uint8_t*)info.dsBm.bmBits;
         for (int y = 0; y < size.dy; y++) {
             for (int x = 0; x < size.dx * 3; x++) {
                 int k = x % 3;
-                bmpData[x] = (uint8)(base[k] + mul255(bmpData[x], diff[k]));
+                bmpData[x] = (uint8_t)(base[k] + mul255(bmpData[x], diff[k]));
             }
             bmpData += info.dsBm.bmWidthBytes;
         }
@@ -1245,9 +1319,9 @@ void UpdateBitmapColors(HBITMAP hbmp, COLORREF textColor, COLORREF bgColor) {
         DeleteObject(SelectObject(hDC, hbmp));
         UINT num = GetDIBColorTable(hDC, 0, dimof(palette), palette);
         for (UINT i = 0; i < num; i++) {
-            palette[i].rgbRed = (uint8)(base[2] + mul255(palette[i].rgbRed, diff[2]));
-            palette[i].rgbGreen = (uint8)(base[1] + mul255(palette[i].rgbGreen, diff[1]));
-            palette[i].rgbBlue = (uint8)(base[0] + mul255(palette[i].rgbBlue, diff[0]));
+            palette[i].rgbRed = (uint8_t)(base[2] + mul255(palette[i].rgbRed, diff[2]));
+            palette[i].rgbGreen = (uint8_t)(base[1] + mul255(palette[i].rgbGreen, diff[1]));
+            palette[i].rgbBlue = (uint8_t)(base[0] + mul255(palette[i].rgbBlue, diff[0]));
         }
         if (num > 0)
             SetDIBColorTable(hDC, 0, num, palette);
@@ -1265,13 +1339,13 @@ void UpdateBitmapColors(HBITMAP hbmp, COLORREF textColor, COLORREF bgColor) {
 
     HDC hDC = CreateCompatibleDC(nullptr);
     int bmpBytes = size.dx * size.dy * 4;
-    ScopedMem<uint8> bmpData((uint8*)malloc(bmpBytes));
+    ScopedMem<uint8_t> bmpData((uint8_t*)malloc(bmpBytes));
     CrashIf(!bmpData);
 
     if (GetDIBits(hDC, hbmp, 0, size.dy, bmpData, &bmi, DIB_RGB_COLORS)) {
         for (int i = 0; i < bmpBytes; i++) {
             int k = i % 4;
-            bmpData[i] = (uint8)(base[k] + mul255(bmpData[i], diff[k]));
+            bmpData[i] = (uint8_t)(base[k] + mul255(bmpData[i], diff[k]));
         }
         SetDIBits(hDC, hbmp, 0, size.dy, bmpData, &bmi, DIB_RGB_COLORS);
     }

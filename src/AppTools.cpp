@@ -1,15 +1,16 @@
-/* Copyright 2015 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2018 the SumatraPDF project authors (see AUTHORS file).
    License: GPLv3 */
 
-// utils
-#include "BaseUtil.h"
-#include "WinDynCalls.h"
-#include "CmdLineParser.h"
-#include "DbgHelpDyn.h"
-#include "FileUtil.h"
-#include "WinUtil.h"
-// ui
+#include "utils/BaseUtil.h"
+#include "utils/WinDynCalls.h"
+#include "utils/CmdLineParser.h"
+#include "utils/DbgHelpDyn.h"
+#include "utils/FileUtil.h"
+#include "utils/WinUtil.h"
+#include "utils/CryptoUtil.h"
 #include "AppTools.h"
+#include "utils/DirIter.h"
+
 #include "Translations.h"
 #include "Version.h"
 
@@ -17,8 +18,7 @@
 
 /* Returns true, if a Registry entry indicates that this executable has been
    created by an installer (and should be updated through an installer) */
-bool HasBeenInstalled()
-{
+bool HasBeenInstalled() {
     std::unique_ptr<WCHAR> installedPath(ReadRegStr(HKEY_CURRENT_USER, REG_PATH_UNINST, L"InstallLocation"));
     // cf. GetInstallationDir() in installer\Installer.cpp
     if (!installedPath) {
@@ -43,8 +43,7 @@ bool HasBeenInstalled()
 /* Return false if this program has been started from "Program Files" directory
    (which is an indicator that it has been installed) or from the last known
    location of a SumatraPDF installation: */
-bool IsRunningInPortableMode()
-{
+bool IsRunningInPortableMode() {
     // cache the result so that it will be consistent during the lifetime of the process
     static int sCacheIsPortable = -1; // -1 == uninitialized, 0 == installed, 1 == portable
     if (sCacheIsPortable != -1) {
@@ -66,7 +65,7 @@ bool IsRunningInPortableMode()
 
     // check if one of the exePath's parent directories is "Program Files"
     // (or a junction to it)
-    WCHAR *baseName;
+    WCHAR* baseName;
     while ((baseName = (WCHAR*)path::GetBaseName(exePath)) > exePath) {
         baseName[-1] = '\0';
         if (path::IsSame(programFilesDir, exePath)) {
@@ -78,27 +77,25 @@ bool IsRunningInPortableMode()
     return true;
 }
 
-static AutoFreeW gAppDataPath;
+static AutoFreeW gAppDataDir;
 
-void SetAppDataPath(const WCHAR *path)
-{
-    gAppDataPath.Set(path::Normalize(path));
+void SetAppDataPath(const WCHAR* path) {
+    gAppDataDir.Set(path::Normalize(path));
 }
 
 /* Generate the full path for a filename used by the app in the userdata path. */
 /* Caller needs to free() the result. */
-WCHAR *AppGenDataFilename(const WCHAR *fileName)
-{
+WCHAR* AppGenDataFilename(const WCHAR* fileName) {
     if (!fileName)
         return nullptr;
 
-    if (gAppDataPath && dir::Exists(gAppDataPath)) {
-        return path::Join(gAppDataPath, fileName);
+    if (gAppDataDir && dir::Exists(gAppDataDir)) {
+        return path::Join(gAppDataDir, fileName);
     }
 
     if (IsRunningInPortableMode()) {
         /* Use the same path as the binary */
-        return path::GetAppPath(fileName);
+        return path::GetPathOfFileInAppDir(fileName);
     }
 
     /* Use %APPDATA% */
@@ -113,6 +110,23 @@ WCHAR *AppGenDataFilename(const WCHAR *fileName)
     if (!ok)
         return nullptr;
     return path::Join(path, fileName);
+}
+
+WCHAR* PathForFileInAppDataDir(const WCHAR* fileName) {
+    if (!fileName)
+        return nullptr;
+
+    /* Use local (non-roaming) app data directory */
+    WCHAR* dataDir = GetSpecialFolder(CSIDL_LOCAL_APPDATA, true);
+    WCHAR* dir = path::Join(dataDir, APP_NAME_STR);
+    free(dataDir);
+
+    defer { str::Free(dir); };
+    bool ok = dir::Create(dir);
+    if (!ok)
+        return nullptr;
+
+    return path::Join(dir, fileName);
 }
 
 /*
@@ -157,14 +171,13 @@ Note: When making changes below, please also adjust WriteExtendedFileExtensionIn
 UnregisterFromBeingDefaultViewer() and RemoveOwnRegistryKeys() in Installer.cpp.
 
 */
-#define REG_CLASSES_APP     L"Software\\Classes\\" APP_NAME_STR
-#define REG_CLASSES_PDF     L"Software\\Classes\\.pdf"
+#define REG_CLASSES_APP L"Software\\Classes\\" APP_NAME_STR
+#define REG_CLASSES_PDF L"Software\\Classes\\.pdf"
 
-#define REG_WIN_CURR        L"Software\\Microsoft\\Windows\\CurrentVersion"
+#define REG_WIN_CURR L"Software\\Microsoft\\Windows\\CurrentVersion"
 #define REG_EXPLORER_PDF_EXT REG_WIN_CURR L"\\Explorer\\FileExts\\.pdf"
 
-void DoAssociateExeWithPdfExtension(HKEY hkey)
-{
+void DoAssociateExeWithPdfExtension(HKEY hkey) {
     AutoFreeW exePath(GetExePath());
     if (!exePath)
         return;
@@ -176,7 +189,7 @@ void DoAssociateExeWithPdfExtension(HKEY hkey)
         WriteRegStr(hkey, REG_CLASSES_APP, L"previous.pdf", prevHandler);
 
     WriteRegStr(hkey, REG_CLASSES_APP, nullptr, _TR("PDF Document"));
-    WCHAR *icon_path = str::Join(exePath, L",1");
+    WCHAR* icon_path = str::Join(exePath, L",1");
     WriteRegStr(hkey, REG_CLASSES_APP L"\\DefaultIcon", nullptr, icon_path);
     free(icon_path);
 
@@ -210,8 +223,7 @@ void DoAssociateExeWithPdfExtension(HKEY hkey)
 
 // verify that all registry entries that need to be set in order to associate
 // Sumatra with .pdf files exist and have the right values
-bool IsExeAssociatedWithPdfExtension()
-{
+bool IsExeAssociatedWithPdfExtension() {
     // this one doesn't have to exist but if it does, it must be APP_NAME_STR
     AutoFreeW tmp(ReadRegStr(HKEY_CURRENT_USER, REG_EXPLORER_PDF_EXT, L"Progid"));
     if (tmp && !str::Eq(tmp, APP_NAME_STR))
@@ -248,66 +260,54 @@ bool IsExeAssociatedWithPdfExtension()
     if (!exePath || !argList.Contains(L"%1") || !str::Find(tmp, L"\"%1\""))
         return false;
 
-    return path::IsSame(exePath, argList.At(0));
+    return path::IsSame(exePath, argList.at(0));
 }
 
 // List of rules used to detect TeX editors.
 
 // type of path information retrieved from the registy
 enum EditorPathType {
-    BinaryPath,         // full path to the editor's binary file
-    BinaryDir,          // directory containing the editor's binary file
-    SiblingPath,        // full path to a sibling file of the editor's binary file
+    BinaryPath,  // full path to the editor's binary file
+    BinaryDir,   // directory containing the editor's binary file
+    SiblingPath, // full path to a sibling file of the editor's binary file
 };
 
 static struct {
-    const WCHAR *  BinaryFilename;      // Editor's binary file name
-    const WCHAR *  InverseSearchArgs;   // Parameters to be passed to the editor;
-                                        // use placeholder '%f' for path to source file and '%l' for line number.
-    EditorPathType Type;                // Type of the path information obtained from the registry
-    HKEY           RegRoot;             // Root of the regkey
-    const WCHAR *  RegKey;              // Registry key path
-    const WCHAR *  RegValue;            // Registry value name
+    const WCHAR* BinaryFilename;    // Editor's binary file name
+    const WCHAR* InverseSearchArgs; // Parameters to be passed to the editor;
+                                    // use placeholder '%f' for path to source file and '%l' for line number.
+    EditorPathType Type;            // Type of the path information obtained from the registry
+    HKEY RegRoot;                   // Root of the regkey
+    const WCHAR* RegKey;            // Registry key path
+    const WCHAR* RegValue;          // Registry value name
 } editor_rules[] = {
-    L"WinEdt.exe",      L"\"[Open(|%f|);SelPar(%l,8)]\"",   BinaryPath,
-                        HKEY_LOCAL_MACHINE, REG_WIN_CURR L"\\App Paths\\WinEdt.exe", nullptr,
-    L"WinEdt.exe",      L"\"[Open(|%f|);SelPar(%l,8)]\"",   BinaryDir,
-                        HKEY_CURRENT_USER,  L"Software\\WinEdt", L"Install Root",
-    L"notepad++.exe",   L"-n%l \"%f\"",                     BinaryPath,
-                        HKEY_LOCAL_MACHINE, REG_WIN_CURR L"\\App Paths\\notepad++.exe", nullptr,
-    L"notepad++.exe",   L"-n%l \"%f\"",                     BinaryDir,
-                        HKEY_LOCAL_MACHINE, L"Software\\Notepad++", nullptr,
-    L"notepad++.exe",   L"-n%l \"%f\"",                     BinaryPath,
-                        HKEY_LOCAL_MACHINE, REG_WIN_CURR L"\\Uninstall\\Notepad++", L"DisplayIcon",
-    L"sublime_text.exe",L"\"%f:%l\"",                       BinaryDir,
-                        HKEY_LOCAL_MACHINE, REG_WIN_CURR L"\\Uninstall\\Sublime Text 3_is1", L"InstallLocation",
-    L"sublime_text.exe",L"\"%f:%l\"",                       BinaryPath,
-                        HKEY_LOCAL_MACHINE, REG_WIN_CURR L"\\Uninstall\\Sublime Text 3_is1", L"DisplayIcon",
-    L"sublime_text.exe",L"\"%f:%l\"",                       BinaryDir,
-                        HKEY_LOCAL_MACHINE, REG_WIN_CURR L"\\Uninstall\\Sublime Text 2_is1", L"InstallLocation",
-    L"sublime_text.exe",L"\"%f:%l\"",                       BinaryPath,
-                        HKEY_LOCAL_MACHINE, REG_WIN_CURR L"\\Uninstall\\Sublime Text 2_is1", L"DisplayIcon",
-    L"TeXnicCenter.exe",L"/ddecmd \"[goto('%f', '%l')]\"",  BinaryDir,
-                        HKEY_LOCAL_MACHINE, L"Software\\ToolsCenter\\TeXnicCenterNT", L"AppPath",
-    L"TeXnicCenter.exe",L"/ddecmd \"[goto('%f', '%l')]\"",  BinaryDir,
-                        HKEY_LOCAL_MACHINE, REG_WIN_CURR L"\\Uninstall\\TeXnicCenter_is1", L"InstallLocation",
-    L"TeXnicCenter.exe",L"/ddecmd \"[goto('%f', '%l')]\"",  BinaryDir,
-                        HKEY_LOCAL_MACHINE, REG_WIN_CURR L"\\Uninstall\\TeXnicCenter Alpha_is1", L"InstallLocation",
-    L"TEXCNTR.exe",     L"/ddecmd \"[goto('%f', '%l')]\"",  BinaryDir,
-                        HKEY_LOCAL_MACHINE, L"Software\\ToolsCenter\\TeXnicCenter", L"AppPath",
-    L"TEXCNTR.exe",     L"/ddecmd \"[goto('%f', '%l')]\"",  BinaryDir,
-                        HKEY_LOCAL_MACHINE, REG_WIN_CURR L"\\Uninstall\\TeXnicCenter_is1", L"InstallLocation",
-    L"WinShell.exe",    L"-c \"%f\" -l %l",                 BinaryDir,
-                        HKEY_LOCAL_MACHINE, REG_WIN_CURR L"\\Uninstall\\WinShell_is1", L"InstallLocation",
-    L"gvim.exe",        L"\"%f\" +%l",                      BinaryPath,
-                        HKEY_LOCAL_MACHINE, L"Software\\Vim\\Gvim", L"path",
-    // TODO: add this rule only if the latex-suite for ViM is installed (http://vim-latex.sourceforge.net/documentation/latex-suite.txt)
-    L"gvim.exe",        L"-c \":RemoteOpen +%l %f\"",       BinaryPath,
-                        HKEY_LOCAL_MACHINE, L"Software\\Vim\\Gvim", L"path",
-    L"texmaker.exe",    L"\"%f\" -line %l",                 SiblingPath,
-                        HKEY_LOCAL_MACHINE, REG_WIN_CURR L"\\Uninstall\\Texmaker", L"UninstallString",
-    L"TeXworks.exe",    L"-p=%l \"%f\"",                    BinaryDir,
-                        HKEY_LOCAL_MACHINE, REG_WIN_CURR L"\\Uninstall\\{41DA4817-4D2A-4D83-AD02-6A2D95DC8DCB}_is1", L"InstallLocation",
+    L"WinEdt.exe", L"\"[Open(|%f|);SelPar(%l,8)]\"", BinaryPath, HKEY_LOCAL_MACHINE,
+    REG_WIN_CURR L"\\App Paths\\WinEdt.exe", nullptr, L"WinEdt.exe", L"\"[Open(|%f|);SelPar(%l,8)]\"", BinaryDir,
+    HKEY_CURRENT_USER, L"Software\\WinEdt", L"Install Root", L"notepad++.exe", L"-n%l \"%f\"", BinaryPath,
+    HKEY_LOCAL_MACHINE, REG_WIN_CURR L"\\App Paths\\notepad++.exe", nullptr, L"notepad++.exe", L"-n%l \"%f\"",
+    BinaryDir, HKEY_LOCAL_MACHINE, L"Software\\Notepad++", nullptr, L"notepad++.exe", L"-n%l \"%f\"", BinaryPath,
+    HKEY_LOCAL_MACHINE, REG_WIN_CURR L"\\Uninstall\\Notepad++", L"DisplayIcon", L"sublime_text.exe", L"\"%f:%l\"",
+    BinaryDir, HKEY_LOCAL_MACHINE, REG_WIN_CURR L"\\Uninstall\\Sublime Text 3_is1", L"InstallLocation",
+    L"sublime_text.exe", L"\"%f:%l\"", BinaryPath, HKEY_LOCAL_MACHINE, REG_WIN_CURR L"\\Uninstall\\Sublime Text 3_is1",
+    L"DisplayIcon", L"sublime_text.exe", L"\"%f:%l\"", BinaryDir, HKEY_LOCAL_MACHINE,
+    REG_WIN_CURR L"\\Uninstall\\Sublime Text 2_is1", L"InstallLocation", L"sublime_text.exe", L"\"%f:%l\"", BinaryPath,
+    HKEY_LOCAL_MACHINE, REG_WIN_CURR L"\\Uninstall\\Sublime Text 2_is1", L"DisplayIcon", L"TeXnicCenter.exe",
+    L"/ddecmd \"[goto('%f', '%l')]\"", BinaryDir, HKEY_LOCAL_MACHINE, L"Software\\ToolsCenter\\TeXnicCenterNT",
+    L"AppPath", L"TeXnicCenter.exe", L"/ddecmd \"[goto('%f', '%l')]\"", BinaryDir, HKEY_LOCAL_MACHINE,
+    REG_WIN_CURR L"\\Uninstall\\TeXnicCenter_is1", L"InstallLocation", L"TeXnicCenter.exe",
+    L"/ddecmd \"[goto('%f', '%l')]\"", BinaryDir, HKEY_LOCAL_MACHINE,
+    REG_WIN_CURR L"\\Uninstall\\TeXnicCenter Alpha_is1", L"InstallLocation", L"TEXCNTR.exe",
+    L"/ddecmd \"[goto('%f', '%l')]\"", BinaryDir, HKEY_LOCAL_MACHINE, L"Software\\ToolsCenter\\TeXnicCenter",
+    L"AppPath", L"TEXCNTR.exe", L"/ddecmd \"[goto('%f', '%l')]\"", BinaryDir, HKEY_LOCAL_MACHINE,
+    REG_WIN_CURR L"\\Uninstall\\TeXnicCenter_is1", L"InstallLocation", L"WinShell.exe", L"-c \"%f\" -l %l", BinaryDir,
+    HKEY_LOCAL_MACHINE, REG_WIN_CURR L"\\Uninstall\\WinShell_is1", L"InstallLocation", L"gvim.exe", L"\"%f\" +%l",
+    BinaryPath, HKEY_LOCAL_MACHINE, L"Software\\Vim\\Gvim", L"path",
+    // TODO: add this rule only if the latex-suite for ViM is installed
+    // (http://vim-latex.sourceforge.net/documentation/latex-suite.txt)
+    L"gvim.exe", L"-c \":RemoteOpen +%l %f\"", BinaryPath, HKEY_LOCAL_MACHINE, L"Software\\Vim\\Gvim", L"path",
+    L"texmaker.exe", L"\"%f\" -line %l", SiblingPath, HKEY_LOCAL_MACHINE, REG_WIN_CURR L"\\Uninstall\\Texmaker",
+    L"UninstallString", L"TeXworks.exe", L"-p=%l \"%f\"", BinaryDir, HKEY_LOCAL_MACHINE,
+    REG_WIN_CURR L"\\Uninstall\\{41DA4817-4D2A-4D83-AD02-6A2D95DC8DCB}_is1", L"InstallLocation",
     // TODO: find a way to detect where emacs is installed
     // L"emacsclientw.exe",L"+%l \"%f\"", BinaryPath, HKEY_LOCAL_MACHINE, L"???", L"???",
 };
@@ -316,12 +316,12 @@ static struct {
 // corresponding inverse search commands.
 //
 // Parameters:
-//      hwndCombo   -- (optional) handle to a combo list that will be filled with the list of possible inverse search commands.
+//      hwndCombo   -- (optional) handle to a combo list that will be filled with the list of possible inverse search
+//      commands.
 // Returns:
 //      the inverse search command of the first detected editor (the caller needs to free() the result).
-WCHAR *AutoDetectInverseSearchCommands(HWND hwndCombo)
-{
-    WCHAR *firstEditor = nullptr;
+WCHAR* AutoDetectInverseSearchCommands(HWND hwndCombo) {
+    WCHAR* firstEditor = nullptr;
     WStrList foundExes;
 
     for (int i = 0; i < dimof(editor_rules); i++) {
@@ -334,8 +334,7 @@ WCHAR *AutoDetectInverseSearchCommands(HWND hwndCombo)
             // remove file part
             AutoFreeW dir(path::GetDir(path));
             exePath.Set(path::Join(dir, editor_rules[i].BinaryFilename));
-        }
-        else if (editor_rules[i].Type == BinaryDir)
+        } else if (editor_rules[i].Type == BinaryDir)
             exePath.Set(path::Join(path, editor_rules[i].BinaryFilename));
         else // if (editor_rules[i].Type == BinaryPath)
             exePath.Set(path.StealData());
@@ -376,46 +375,44 @@ WCHAR *AutoDetectInverseSearchCommands(HWND hwndCombo)
 // selects all text in an edit box if it's selected either
 // through a keyboard shortcut or a non-selecting mouse click
 // (or responds to Ctrl+Backspace as nowadays expected)
-bool ExtendedEditWndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
-{
+bool ExtendedEditWndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) {
     UNUSED(lParam);
 
     static bool delayFocus = false;
 
     switch (message) {
-    case WM_LBUTTONDOWN:
-        delayFocus = GetFocus() != hwnd;
-        return true;
+        case WM_LBUTTONDOWN:
+            delayFocus = !IsFocused(hwnd);
+            return true;
 
-    case WM_LBUTTONUP:
-        if (delayFocus) {
-            DWORD sel = Edit_GetSel(hwnd);
-            if (LOWORD(sel) == HIWORD(sel))
+        case WM_LBUTTONUP:
+            if (delayFocus) {
+                DWORD sel = Edit_GetSel(hwnd);
+                if (LOWORD(sel) == HIWORD(sel))
+                    PostMessage(hwnd, UWM_DELAYED_SET_FOCUS, 0, 0);
+                delayFocus = false;
+            }
+            return true;
+
+        case WM_KILLFOCUS:
+            return false; // for easier debugging (make setting a breakpoint possible)
+
+        case WM_SETFOCUS:
+            if (!delayFocus)
                 PostMessage(hwnd, UWM_DELAYED_SET_FOCUS, 0, 0);
-            delayFocus = false;
-        }
-        return true;
+            return true;
 
-    case WM_KILLFOCUS:
-        return false; // for easier debugging (make setting a breakpoint possible)
+        case UWM_DELAYED_SET_FOCUS:
+            Edit_SelectAll(hwnd);
+            return true;
 
-    case WM_SETFOCUS:
-        if (!delayFocus)
-            PostMessage(hwnd, UWM_DELAYED_SET_FOCUS, 0, 0);
-        return true;
+        case WM_KEYDOWN:
+            if (VK_BACK != wParam || !IsCtrlPressed() || IsShiftPressed())
+                return false;
+            PostMessage(hwnd, UWM_DELAYED_CTRL_BACK, 0, 0);
+            return true;
 
-    case UWM_DELAYED_SET_FOCUS:
-        Edit_SelectAll(hwnd);
-        return true;
-
-    case WM_KEYDOWN:
-        if (VK_BACK != wParam || !IsCtrlPressed() || IsShiftPressed())
-            return false;
-        PostMessage(hwnd, UWM_DELAYED_CTRL_BACK, 0, 0);
-        return true;
-
-    case UWM_DELAYED_CTRL_BACK:
-        {
+        case UWM_DELAYED_CTRL_BACK: {
             AutoFreeW text(win::GetText(hwnd));
             int selStart = LOWORD(Edit_GetSel(hwnd)), selEnd = selStart;
             // remove the rectangle produced by Ctrl+Backspace
@@ -425,26 +422,27 @@ bool ExtendedEditWndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
                 selStart = selEnd = selStart - 1;
             }
             // remove the previous word (and any spacing after it)
-            for (; selStart > 0 && str::IsWs(text[selStart - 1]); selStart--);
-            for (; selStart > 0 && !str::IsWs(text[selStart - 1]); selStart--);
+            for (; selStart > 0 && str::IsWs(text[selStart - 1]); selStart--)
+                ;
+            for (; selStart > 0 && !str::IsWs(text[selStart - 1]); selStart--)
+                ;
             Edit_SetSel(hwnd, selStart, selEnd);
             SendMessage(hwnd, WM_CLEAR, 0, 0);
         }
-        return true;
+            return true;
 
-    default:
-        return false;
+        default:
+            return false;
     }
 }
 
 /* Default size for the window, happens to be american A4 size (I think) */
-#define DEF_PAGE_RATIO          (612.0/792.0)
+#define DEF_PAGE_RATIO (612.0 / 792.0)
 
 #define MIN_WIN_DX 50
 #define MIN_WIN_DY 50
 
-void EnsureAreaVisibility(RectI& r)
-{
+void EnsureAreaVisibility(RectI& r) {
     // adjust to the work-area of the current monitor (not necessarily the primary one)
     RectI work = GetWorkAreaRect(r);
 
@@ -462,8 +460,7 @@ void EnsureAreaVisibility(RectI& r)
         r = RectI(work.TL(), r.Size());
 }
 
-RectI GetDefaultWindowPos()
-{
+RectI GetDefaultWindowPos() {
     RECT workArea;
     SystemParametersInfo(SPI_GETWORKAREA, 0, &workArea, 0);
     RectI work = RectI::FromRECT(workArea);
@@ -475,12 +472,140 @@ RectI GetDefaultWindowPos()
     return r;
 }
 
-void SaveCallstackLogs()
-{
-    char *s = dbghelp::GetCallstacks();
+void SaveCallstackLogs() {
+    char* s = dbghelp::GetCallstacks();
     if (!s)
         return;
     AutoFreeW filePath(AppGenDataFilename(L"callstacks.txt"));
-    file::WriteAll(filePath.Get(), s, str::Len(s));
+    file::WriteFile(filePath.Get(), s, str::Len(s));
     free(s);
+}
+
+// cache because calculating md5 of the whole executable
+// might be relatively expensive
+static AutoFreeW gAppMd5;
+
+// return hex version of md5 of app's executable
+// nullptr if there was an error
+// caller needs to free the result
+static const WCHAR* Md5OfAppExe() {
+    if (gAppMd5.Get()) {
+        return str::Dup(gAppMd5.Get());
+    }
+
+    const WCHAR* appPath = GetExePath();
+    if (appPath == nullptr) {
+        return {};
+    }
+    defer { str::Free(appPath); };
+    auto d = file::ReadFile(appPath);
+    if (d.IsEmpty()) {
+        return nullptr;
+    }
+
+    unsigned char md5[16] = {0};
+    CalcMD5DigestWin(d.data, d.size, md5);
+
+    AutoFree md5HexA(_MemToHex(&md5));
+    AutoFreeW md5Hex(str::conv::FromUtf8(md5HexA));
+
+    return md5Hex.StealData();
+}
+
+#ifdef _WIN64
+static const WCHAR* unrarFileName = L"unrar64.dll";
+#else
+static const WCHAR* unrarFileName = L"unrar.dll";
+#endif
+
+// remove all directories except for ours
+//. need to avoid acuumulating the directories when testing
+// locally or using pre-release builds (both cases where
+// exe and its md5 changes frequently)
+void RemoveMd5AppDataDirectories() {
+    const WCHAR* extractedDir = PathForFileInAppDataDir(L"extracted");
+    if (!extractedDir) {
+        return;
+    }
+    defer { str::Free(extractedDir); };
+
+    auto dirs = CollectDirsFromDirectory(extractedDir);
+    if (dirs.empty()) {
+        return;
+    }
+
+    const WCHAR* md5App = Md5OfAppExe();
+    if (md5App == nullptr) {
+        return;
+    }
+    defer { str::Free(md5App); };
+
+    const WCHAR* md5Dir = path::Join(extractedDir, md5App);
+    defer { str::Free(md5Dir); };
+
+    for (auto& dir : dirs) {
+        const WCHAR* s = dir.data();
+        if (str::Eq(s, md5Dir)) {
+            continue;
+        }
+        dir::RemoveAll(s);
+    }
+}
+
+// return a path on disk to extracted unrar.dll or nullptr if couldn't extract
+// memory has to be freed by the caller
+const WCHAR* ExractUnrarDll() {
+    RemoveMd5AppDataDirectories();
+
+    const WCHAR* extractedDir = PathForFileInAppDataDir(L"extracted");
+    if (!extractedDir) {
+        return nullptr;
+    }
+    defer { str::Free(extractedDir); };
+
+    const WCHAR* md5App = Md5OfAppExe();
+    if (md5App == nullptr) {
+        return nullptr;
+    }
+    defer { str::Free(md5App); };
+
+    const WCHAR* md5Dir = path::Join(extractedDir, md5App);
+    defer { str::Free(md5Dir); };
+
+    const WCHAR* dllPath = path::Join(md5Dir, unrarFileName);
+    defer { str::Free(dllPath); };
+
+    if (file::Exists(dllPath)) {
+        const WCHAR* ret = dllPath;
+        dllPath = nullptr; // don't free
+        return ret;
+    }
+
+    bool ok = dir::CreateAll(md5Dir);
+    if (!ok) {
+        return nullptr;
+    }
+
+    HGLOBAL res = 0;
+    auto h = GetModuleHandle(nullptr);
+    auto resName = MAKEINTRESOURCEW(1);
+    HRSRC resSrc = FindResourceW(h, resName, RT_RCDATA);
+    if (!resSrc) {
+        return nullptr;
+    }
+    res = LoadResource(nullptr, resSrc);
+    if (!res) {
+        return nullptr;
+    }
+    const char* data = (const char*)LockResource(res);
+    defer { UnlockResource(res); };
+    DWORD dataSize = SizeofResource(nullptr, resSrc);
+    ok = file::WriteFile(dllPath, data, dataSize);
+    if (!ok) {
+        return nullptr;
+    }
+
+    const WCHAR* ret = dllPath;
+    dllPath = nullptr; // don't free
+    return ret;
 }

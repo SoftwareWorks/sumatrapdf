@@ -1,12 +1,14 @@
-/* Copyright 2015 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2018 the SumatraPDF project authors (see AUTHORS file).
    License: GPLv3 */
 
-#include "BaseUtil.h"
-#include "WinDynCalls.h"
-#include "WinUtil.h"
+#include "utils/BaseUtil.h"
+#include "utils/WinDynCalls.h"
+#include "utils/WinUtil.h"
 
 #include "SettingsStructs.h"
 #include "Colors.h"
+#include "ProgressUpdateUI.h"
+#include "Notifications.h"
 #include "SumatraPDF.h"
 #include "WindowInfo.h"
 #include "Caption.h"
@@ -98,9 +100,8 @@ void CaptionInfo::UpdateColors(bool activeWindow) {
         G = BYTE((int)floor(G * factor + 0.5f) + white);
         B = BYTE((int)floor(B * factor + 0.5f) + white);
         bgColor = RGB(R, G, B);
-    } else if (!theme ||
-               !SUCCEEDED(theme::GetThemeColor(theme, WP_CAPTION, 0,
-                                               activeWindow ? TMT_FILLCOLORHINT : TMT_BORDERCOLORHINT, &bgColor))) {
+    } else if (!theme || !SUCCEEDED(theme::GetThemeColor(
+                             theme, WP_CAPTION, 0, activeWindow ? TMT_FILLCOLORHINT : TMT_BORDERCOLORHINT, &bgColor))) {
         bgColor = activeWindow ? GetSysColor(COLOR_GRADIENTACTIVECAPTION) : GetSysColor(COLOR_GRADIENTINACTIVECAPTION);
     }
     if (!theme ||

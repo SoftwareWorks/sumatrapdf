@@ -1,130 +1,83 @@
-/* Copyright 2015 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2018 the SumatraPDF project authors (see AUTHORS file).
    License: Simplified BSD (see COPYING.BSD) */
 
 #define SERIALIZE_ESCAPE_CHAR '$'
 
-enum Token {
-    TokenFinished = 0,
-    TokenArrayStart,   // [
-    TokenStructStart,  // foo [
-    TokenClose,        // ]
-    TokenKeyVal,       // foo: bar
-    TokenString,       // foo
-};
-
-enum TxtNodeType {
-    StructNode,
-    ArrayNode,
-    TextNode,
-};
-
 struct TxtNode {
-    TxtNodeType     type;
-    Vec<TxtNode*>*  children;
+    enum class Type {
+        Struct,
+        Array,
+        Text,
+    };
 
-    char *          lineStart;
-    char *          valStart;
-    char *          valEnd;
-    char *          keyStart;
-    char *          keyEnd;
+    Type type;
 
-    explicit TxtNode(TxtNodeType tp) {
-        type = tp;
-    }
-    ~TxtNode() { }
+    // for storing children, first goes into firstChild and the
+    // rest are linked as sibling
+    TxtNode* firstChild;
+    TxtNode* sibling;
 
-    size_t KeyLen() const {
-        return keyEnd - keyStart;
-    }
+    char* lineStart;
+    char* valStart;
+    char* valEnd;
+    char* keyStart;
+    char* keyEnd;
 
-    size_t ValLen() const {
-        return valEnd - valStart;
-    }
+    explicit TxtNode(TxtNode::Type tp) { type = tp; }
+    TxtNode(const TxtNode& other) = delete;
+    TxtNode& operator=(const TxtNode& other) = delete;
 
-    bool IsArray() const {
-        return ArrayNode == type;
-    }
+    void AddChild(TxtNode*);
 
-    bool IsStruct() const {
-        return StructNode == type;
-    }
-
-    // TODO: move to TxtParser.cpp
-    bool IsStructWithName(const char *name, size_t nameLen) const {
-        if (StructNode != type)
-            return false;
-        if (nameLen != KeyLen())
-            return false;
-        return str::EqNI(keyStart, name, nameLen);
-    }
-
-    bool IsStructWithName(const char *name) const {
-        return IsStructWithName(name, str::Len(name));
-    }
-
-    bool IsText() const {
-        return TextNode == type;
-    }
-
-    // TODO: move to TxtParser.cpp
-    bool IsTextWithKey(const char *name) const {
-        if (!keyStart)
-            return false;
-        size_t nameLen = str::Len(name);
-        if (nameLen != KeyLen())
-            return false;
-        return str::EqNI(keyStart, name, nameLen);
-    }
-
-    // TODO: move to TxtParser.cpp
-    char *KeyDup() const {
-        if (!keyStart)
-            return nullptr;
-        return str::DupN(keyStart, KeyLen());
-    }
-
-    // TODO: move to TxtParser.cpp
-    char *ValDup() const {
-        if (!valStart)
-            return nullptr;
-        return str::DupN(valStart, ValLen());
-    }
+    size_t KeyLen() const;
+    size_t ValLen() const;
+    bool IsArray() const;
+    bool IsStruct() const;
+    bool IsStructWithName(const char* name, size_t nameLen) const;
+    bool IsStructWithName(const char* name) const;
+    bool IsText() const;
+    bool IsTextWithKey(const char* name) const;
+    char* KeyDup() const;
+    char* ValDup() const;
 };
 
-struct TokenVal {
-    Token   type;
+struct Token {
+    enum class Type {
+        Finished = 0,
+        ArrayStart,  // [
+        StructStart, // foo [
+        Close,       // ]
+        KeyVal,      // foo: bar
+        String,      // foo
+    };
+
+    Type type = Type::Finished;
 
     // TokenString, TokenKeyVal
-    char *  lineStart;
-    char *  valStart;
-    char *  valEnd;
+    char* lineStart = nullptr;
+    char* valStart = nullptr;
+    char* valEnd = nullptr;
 
     // TokenKeyVal
-    char *  keyStart;
-    char *  keyEnd;
+    char* keyStart = nullptr;
+    char* keyEnd = nullptr;
 };
 
 struct TxtParser {
-    Allocator *     allocator;
-    str::Slice      toParse;
-    TokenVal        tok;
-    char            escapeChar;
-    bool            failed;
-    Vec<TxtNode*>   nodes;
-    char *          toFree;
+    PoolAllocator allocator;
+    OwnedData data;
 
-    TxtParser() {
-        allocator = new PoolAllocator();
-        escapeChar = SERIALIZE_ESCAPE_CHAR;
-        failed = false;
-        toFree = nullptr;
-    }
-    ~TxtParser() {
-        delete allocator;
-        free(toFree);
-    }
-    void SetToParse(char *s, size_t sLen);
+    str::Slice toParse;
+    Token tok;
+    char escapeChar = SERIALIZE_ESCAPE_CHAR;
+    bool failed = false;
+    std::vector<TxtNode*> nodes;
+
+    TxtNode* AllocTxtNode(TxtNode::Type);
+    TxtNode* AllocTxtNodeFromToken(const Token&, TxtNode::Type);
+
+    void SetToParse(const std::string_view&);
 };
 
 bool ParseTxt(TxtParser& parser);
-char *PrettyPrintTxt(const TxtParser& parser);
+OwnedData PrettyPrintTxt(const TxtParser& parser);

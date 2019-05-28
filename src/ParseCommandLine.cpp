@@ -1,10 +1,9 @@
-/* Copyright 2015 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2018 the SumatraPDF project authors (see AUTHORS file).
    License: GPLv3 */
 
-// utils
-#include "BaseUtil.h"
-#include "CmdLineParser.h"
-#include "WinUtil.h"
+#include "utils/BaseUtil.h"
+#include "utils/CmdLineParser.h"
+#include "utils/WinUtil.h"
 // layout controllers
 #include "SettingsStructs.h"
 #include "GlobalPrefs.h"
@@ -86,19 +85,19 @@ bool ParsePageRanges(const WCHAR* ranges, Vec<PageRange>& result) {
     rangeList.Split(ranges, L",", true);
     rangeList.SortNatural();
 
-    for (size_t i = 0; i < rangeList.Count(); i++) {
+    for (size_t i = 0; i < rangeList.size(); i++) {
         int start, end;
-        if (str::Parse(rangeList.At(i), L"%d-%d%$", &start, &end) && 0 < start && start <= end)
+        if (str::Parse(rangeList.at(i), L"%d-%d%$", &start, &end) && 0 < start && start <= end)
             result.Append(PageRange(start, end));
-        else if (str::Parse(rangeList.At(i), L"%d-%$", &start) && 0 < start)
+        else if (str::Parse(rangeList.at(i), L"%d-%$", &start) && 0 < start)
             result.Append(PageRange(start, INT_MAX));
-        else if (str::Parse(rangeList.At(i), L"%d%$", &start) && 0 < start)
+        else if (str::Parse(rangeList.at(i), L"%d%$", &start) && 0 < start)
             result.Append(PageRange(start, start));
         else
             return false;
     }
 
-    return result.Count() > 0;
+    return result.size() > 0;
 }
 
 // a valid page range is a non-empty, comma separated list of either
@@ -129,7 +128,7 @@ static const char* zoomValues =
 // if a number, it's in percent e.g. 12.5 means 12.5%
 // 100 means 100% i.e. actual size as e.g. given in PDF file
 static void ParseZoomValue(float* zoom, const WCHAR* txtOrig) {
-    AutoFree txtDup(str::conv::ToUtf8(txtOrig));
+    OwnedData txtDup(str::conv::ToUtf8(txtOrig));
     char* txt = str::ToLowerInPlace(txtDup.Get());
     int zoomVal = seqstrings::StrToIdx(zoomValues, txt);
     if (zoomVal != -1) {
@@ -272,20 +271,20 @@ static int GetArgNo(const WCHAR* argName) {
 void CommandLineInfo::ParseCommandLine(const WCHAR* cmdLine) {
     WStrVec argList;
     ParseCmdLine(cmdLine, argList);
-    size_t argCount = argList.Count();
+    size_t argCount = argList.size();
 
 #define is_arg_with_param(_argNo) (param && _argNo == arg)
-#define additional_param() argList.At(n + 1)
+#define additional_param() argList.at(n + 1)
 #define has_additional_param() ((argCount > n + 1) && ('-' != additional_param()[0]))
-#define handle_string_param(name) name.SetCopy(argList.At(++n))
-#define handle_int_param(name) name = _wtoi(argList.At(++n))
+#define handle_string_param(name) name.SetCopy(argList.at(++n))
+#define handle_int_param(name) name = _wtoi(argList.at(++n))
 
     for (size_t n = 1; n < argCount; n++) {
-        WCHAR* argName = argList.At(n);
+        WCHAR* argName = argList.at(n);
         int arg = GetArgNo(argName);
         WCHAR* param = nullptr;
         if (argCount > n + 1) {
-            param = argList.At(n + 1);
+            param = argList.at(n + 1);
         }
         if (RegisterForPdf == arg) {
             makeDefault = true;
@@ -316,7 +315,7 @@ void CommandLineInfo::ParseCommandLine(const WCHAR* cmdLine) {
             // always exit on print) and -stress-test (useful for profiling)
             exitWhenDone = true;
         } else if (is_arg_with_param(InverseSearch)) {
-            inverseSearchCmdLine.SetCopy(argList.At(++n));
+            inverseSearchCmdLine.SetCopy(argList.at(++n));
         } else if ((is_arg_with_param(ForwardSearch) || is_arg_with_param(FwdSearch)) && argCount > n + 2) {
             // -forward-search is for consistency with -inverse-search
             // -fwdsearch is for consistency with -fwdsearch-*
@@ -356,12 +355,12 @@ void CommandLineInfo::ParseCommandLine(const WCHAR* cmdLine) {
             ++n;
         } else if (is_arg_with_param(Plugin)) {
             // -plugin [<URL>] <parent HWND>
-            if (argCount > n + 2 && !str::IsDigit(*argList.At(n + 1)) && *argList.At(n + 2) != '-')
+            if (argCount > n + 2 && !str::IsDigit(*argList.at(n + 1)) && *argList.at(n + 2) != '-')
                 handle_string_param(pluginURL);
             // the argument is a (numeric) window handle to
             // become the parent of a frameless SumatraPDF
             // (used e.g. for embedding it into a browser plugin)
-            hwndPluginParent = (HWND)(INT_PTR)_wtol(argList.At(++n));
+            hwndPluginParent = (HWND)(INT_PTR)_wtol(argList.at(++n));
         } else if (is_arg_with_param(StressTest)) {
             // -stress-test <file or dir path> [<file filter>] [<page/file range(s)>] [<cycle
             // count>x]
@@ -395,7 +394,7 @@ void CommandLineInfo::ParseCommandLine(const WCHAR* cmdLine) {
             pathsToBenchmark.Push(s);
             s = nullptr;
             if (has_additional_param() && IsBenchPagesInfo(additional_param())) {
-                s = str::Dup(argList.At(++n));
+                s = str::Dup(argList.at(++n));
             }
             pathsToBenchmark.Push(s);
             exitImmediately = true;
@@ -410,19 +409,20 @@ void CommandLineInfo::ParseCommandLine(const WCHAR* cmdLine) {
         }
         // TODO: remove the following deprecated options within a release or two
         else if (is_arg_with_param(Lang)) {
-            lang.Set(str::conv::ToAnsi(param));
+            auto tmp = str::conv::ToAnsi(param);
+            lang.Set(tmp.StealData());
             ++n;
         } else if (EscToExit == arg) {
-            globalPrefArgs.Append(str::Dup(argList.At(n)));
+            globalPrefArgs.Append(str::Dup(argList.at(n)));
         } else if (is_arg_with_param(BgColor) || is_arg_with_param(BgColor2) || is_arg_with_param(FwdSearchOffset) ||
                    is_arg_with_param(FwdSearchWidth) || is_arg_with_param(FwdSearchColor) ||
                    is_arg_with_param(FwdSearchPermanent) || is_arg_with_param(MangaMode)) {
-            globalPrefArgs.Append(str::Dup(argList.At(n)));
-            globalPrefArgs.Append(str::Dup(argList.At(++n)));
+            globalPrefArgs.Append(str::Dup(argList.at(n)));
+            globalPrefArgs.Append(str::Dup(argList.at(++n)));
         } else if (SetColorRange == arg && argCount > n + 2) {
-            globalPrefArgs.Append(str::Dup(argList.At(n)));
-            globalPrefArgs.Append(str::Dup(argList.At(++n)));
-            globalPrefArgs.Append(str::Dup(argList.At(++n)));
+            globalPrefArgs.Append(str::Dup(argList.at(n)));
+            globalPrefArgs.Append(str::Dup(argList.at(++n)));
+            globalPrefArgs.Append(str::Dup(argList.at(++n)));
         }
 #ifdef DEBUG
         else if (ArgEnumPrinters == arg) {

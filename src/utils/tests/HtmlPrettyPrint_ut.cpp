@@ -1,14 +1,13 @@
-/* Copyright 2015 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2018 the SumatraPDF project authors (see AUTHORS file).
    License: Simplified BSD (see COPYING.BSD) */
 
-#include "BaseUtil.h"
-#include "HtmlPrettyPrint.h"
+#include "utils/BaseUtil.h"
+#include "utils/HtmlPrettyPrint.h"
 
 // must be last due to assert() over-write
-#include "UtAssert.h"
+#include "utils/UtAssert.h"
 
-void HtmlPrettyPrintTest()
-{
+void HtmlPrettyPrintTest() {
     size_t lenOut;
     AutoFree data;
 

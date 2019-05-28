@@ -1,33 +1,33 @@
-/* Copyright 2015 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2018 the SumatraPDF project authors (see AUTHORS file).
    License: GPLv3 */
 
-// utils
-#include "BaseUtil.h"
-#include "ArchUtil.h"
-#include "GdiPlusUtil.h"
-#include "HtmlParserLookup.h"
-#include "HtmlPullParser.h"
-#include "Mui.h"
-#include "ThreadUtil.h"
-#include "Timer.h"
-#include "TrivialHtmlParser.h"
-// rendering engines
+#include "utils/BaseUtil.h"
+#include "utils/ScopedWin.h"
+#include "utils/Archive.h"
+#include "utils/GdiPlusUtil.h"
+#include "utils/HtmlParserLookup.h"
+#include "utils/HtmlPullParser.h"
+#include "mui/Mui.h"
+#include "utils/ThreadUtil.h"
+#include "utils/Timer.h"
+#include "utils/TrivialHtmlParser.h"
+
 #include "BaseEngine.h"
 #include "EbookBase.h"
 #include "EbookDoc.h"
 #include "MobiDoc.h"
 #include "HtmlFormatter.h"
 #include "Doc.h"
-// layout controllers
+
 #include "SettingsStructs.h"
 #include "Controller.h"
 #include "EbookController.h"
 #include "GlobalPrefs.h"
-// ui
+
 #include "EbookControls.h"
 #include "Translations.h"
 //#define NOLOG 0
-#include "DebugLog.h"
+#include "utils/DebugLog.h"
 
 static const WCHAR* GetFontName() {
     // TODO: validate the name?
@@ -44,7 +44,7 @@ static float GetFontSize() {
 
 HtmlFormatterArgs* CreateFormatterArgsDoc(Doc doc, int dx, int dy, Allocator* textAllocator) {
     HtmlFormatterArgs* args = CreateFormatterDefaultArgs(dx, dy, textAllocator);
-    args->htmlStr = doc.GetHtmlData(args->htmlStrLen);
+    args->htmlStr = doc.GetHtmlData();
     args->SetFontName(GetFontName());
     args->fontSize = GetFontSize();
     return args;
@@ -57,10 +57,10 @@ class EbookTocDest : public DocTocItem, public PageDestination {
     EbookTocDest(const WCHAR* title, int reparseIdx) : DocTocItem(str::Dup(title), reparseIdx), url(nullptr) {}
     EbookTocDest(const WCHAR* title, const WCHAR* url) : DocTocItem(str::Dup(title)), url(str::Dup(url)) {}
 
-    virtual PageDestination* GetLink() { return this; }
+    PageDestination* GetLink() override { return this; }
 
     // PageDestination
-    PageDestType GetDestType() const override { return url ? Dest_LaunchURL : Dest_ScrollTo; }
+    PageDestType GetDestType() const override { return url ? PageDestType::LaunchURL : PageDestType::ScrollTo; }
     int GetDestPageNo() const override { return pageNo; }
     RectD GetDestRect() const override { return RectD(); }
     WCHAR* GetDestValue() const override { return str::Dup(url); }
@@ -259,18 +259,18 @@ void EbookController::CloseCurrentDocument() {
 // returns 0 if not found (or maybe on the last page)
 // returns -1 if no pages are available
 static int PageForReparsePoint(Vec<HtmlPage*>* pages, int reparseIdx) {
-    if (!pages || pages->Count() == 0) {
+    if (!pages || pages->size() == 0) {
         return -1;
     }
 
     // sometimes reparseIdx of first page is > 0 and the code below
     // doesn't handle that, so do that case first
-    if (reparseIdx < pages->At(0)->reparseIdx) {
+    if (reparseIdx < pages->at(0)->reparseIdx) {
         return 1;
     }
 
-    for (size_t i = 0; i < pages->Count(); i++) {
-        HtmlPage* pd = pages->At(i);
+    for (size_t i = 0; i < pages->size(); i++) {
+        HtmlPage* pd = pages->at(i);
         if (pd->reparseIdx == reparseIdx) {
             return (int)i + 1;
         }
@@ -393,7 +393,7 @@ void EbookController::ClickedProgress(Control* c, int x, int y) {
     UNUSED(y);
     CrashIf(c != ctrls->progress);
     float perc = ctrls->progress->GetPercAt(x);
-    int pageCount = (int)GetPages()->Count();
+    int pageCount = (int)GetPages()->size();
     int newPageNo = IntFromPerc(pageCount, perc) + 1;
     GoToPage(newPageNo, true);
 }
@@ -406,14 +406,14 @@ void EbookController::OnClickedLink(int pageNo, DrawInstr* link) {
         return;
     }
 
-    if (DocType::Epub == doc.Type() && pages && (size_t)pageNo <= pages->Count()) {
+    if (DocType::Epub == doc.Type() && pages && (size_t)pageNo <= pages->size()) {
         // normalize the URL by combining it with the chapter's base path
         for (int j = pageNo; j > 0; j--) {
-            HtmlPage* p = pages->At(j - 1);
+            HtmlPage* p = pages->at(j - 1);
             // <pagebreak src="..." page_marker /> is usually the second instruction on a page
-            for (size_t k = 0; k < std::min((size_t)2, p->instructions.Count()); k++) {
-                DrawInstr& di = p->instructions.At(k);
-                if (InstrAnchor == di.type && str::StartsWith(di.str.s + di.str.len, "\" page_marker />")) {
+            for (size_t k = 0; k < std::min((size_t)2, p->instructions.size()); k++) {
+                DrawInstr& di = p->instructions.at(k);
+                if (DrawInstrType::Anchor == di.type && str::StartsWith(di.str.s + di.str.len, "\" page_marker />")) {
                     AutoFree basePath(str::DupN(di.str.s, di.str.len));
                     AutoFree relPath(ResolveHtmlEntities(link->str.s, link->str.len));
                     AutoFree absPath(NormalizeURL(relPath, basePath));
@@ -466,7 +466,7 @@ int EbookController::GetMaxPageCount() const {
     if (!pagesTmp) {
         return 0;
     }
-    return (int)pagesTmp->Count();
+    return (int)pagesTmp->size();
 }
 
 // show the status text based on current state
@@ -520,12 +520,12 @@ void EbookController::GoToPage(int pageNo, bool addNavPoint) {
         pageNo = 1;
     }
 
-    HtmlPage* p = pages->At(pageNo - 1);
+    HtmlPage* p = pages->at(pageNo - 1);
     currPageNo = pageNo;
     currPageReparseIdx = p->reparseIdx;
     ctrls->pagesLayout->GetPage1()->SetPage(p);
-    if (IsDoublePage() && pages->Count() > 1) {
-        p = pages->At(pageNo);
+    if (IsDoublePage() && pages->size() > 1) {
+        p = pages->at(pageNo);
         ctrls->pagesLayout->GetPage2()->SetPage(p);
     } else {
         ctrls->pagesLayout->GetPage2()->SetPage(nullptr);
@@ -555,7 +555,8 @@ bool EbookController::GoToPrevPage(bool toBottom) {
 }
 
 void EbookController::StartLayouting(int startReparseIdxArg, DisplayMode displayMode) {
-    if ((size_t)startReparseIdxArg >= doc.GetHtmlDataSize()) {
+    auto d = doc.GetHtmlData();
+    if ((size_t)startReparseIdxArg >= d.size()) {
         startReparseIdxArg = 0;
     }
     currPageReparseIdx = startReparseIdxArg;
@@ -689,9 +690,8 @@ void EbookController::ExtractPageAnchors() {
 
     AutoFreeW epubPagePath;
     int fb2TitleCount = 0;
-    size_t len;
-    const char* data = doc.GetHtmlData(len);
-    HtmlPullParser parser(data, len);
+    auto data = doc.GetHtmlData();
+    HtmlPullParser parser(data.data(), data.size());
     HtmlToken* tok;
     while ((tok = parser.Next()) != nullptr && !tok->IsError()) {
         if (!tok->IsStartTag() && !tok->IsEmptyElementEndTag()) {
@@ -723,19 +723,32 @@ void EbookController::ExtractPageAnchors() {
     }
 }
 
+// Mobi uses filepos (reparseIdx) for in-document links
+static bool UseMobiReparseIdx(const Doc& doc, const WCHAR* id, size_t& reparseIdx) {
+    if (doc.Type() != DocType::Mobi) {
+        return false;
+    }
+    int n;
+    bool ok = str::Parse(id, L"%d%$", &n);
+    if (!ok || (n < 0)) {
+        return false;
+    }
+    auto d = doc.GetHtmlData();
+    reparseIdx = static_cast<size_t>(n);
+    return reparseIdx < d.size();
+}
+
 int EbookController::ResolvePageAnchor(const WCHAR* id) {
     ExtractPageAnchors();
 
-    int reparseIdx = -1;
-    if (DocType::Mobi == doc.Type() && str::Parse(id, L"%d%$", &reparseIdx) && 0 <= reparseIdx &&
-        (size_t)reparseIdx <= doc.GetHtmlDataSize()) {
-        // Mobi uses filepos (reparseIdx) for in-document links
-        return reparseIdx;
+    size_t mobiReparseIdx = static_cast<size_t>(-1);
+    if (UseMobiReparseIdx(doc, id, mobiReparseIdx)) {
+        return static_cast<int>(mobiReparseIdx);
     }
 
     int idx = pageAnchorIds->Find(id);
     if (idx != -1) {
-        return pageAnchorIdxs->At(idx);
+        return pageAnchorIdxs->at(idx);
     }
     if (doc.Type() != DocType::Epub || !str::FindChar(id, '#')) {
         return -1;
@@ -744,7 +757,7 @@ int EbookController::ResolvePageAnchor(const WCHAR* id) {
     AutoFreeW chapterPath(str::DupN(id, str::FindChar(id, '#') - id));
     idx = pageAnchorIds->Find(chapterPath);
     if (idx != -1) {
-        return pageAnchorIdxs->At(idx);
+        return pageAnchorIdxs->at(idx);
     }
     return -1;
 }
@@ -815,8 +828,9 @@ void EbookController::ScrollToLink(PageDestination* dest) {
 
 PageDestination* EbookController::GetNamedDest(const WCHAR* name) {
     int reparseIdx = -1;
+    auto d = doc.GetHtmlData();
     if (DocType::Mobi == doc.Type() && str::Parse(name, L"%d%$", &reparseIdx) && 0 <= reparseIdx &&
-        (size_t)reparseIdx <= doc.GetHtmlDataSize()) {
+        (size_t)reparseIdx <= d.size()) {
         // Mobi uses filepos (reparseIdx) for in-document links
     } else if (!str::FindChar(name, '#')) {
         AutoFreeW id(str::Format(L"#%s", name));
@@ -824,9 +838,10 @@ PageDestination* EbookController::GetNamedDest(const WCHAR* name) {
     } else {
         reparseIdx = ResolvePageAnchor(name);
     }
-    if (reparseIdx < 0)
+    if (reparseIdx < 0) {
         return nullptr;
-    CrashIf((size_t)reparseIdx > doc.GetHtmlDataSize());
+    }
+    CrashIf((size_t)reparseIdx > d.size());
     return new EbookTocDest(nullptr, reparseIdx + 1);
 }
 
@@ -884,11 +899,11 @@ void EbookController::RequestRepaint() {
 void EbookController::AddNavPoint() {
     int idx = currPageReparseIdx;
     // remove the current and all Forward history entries
-    if (navHistoryIdx < navHistory.Count()) {
-        navHistory.RemoveAt(navHistoryIdx, navHistory.Count() - navHistoryIdx);
+    if (navHistoryIdx < navHistory.size()) {
+        navHistory.RemoveAt(navHistoryIdx, navHistory.size() - navHistoryIdx);
     }
     // don't add another entry for the exact same position
-    if (navHistoryIdx > 0 && idx == navHistory.At(navHistoryIdx - 1)) {
+    if (navHistoryIdx > 0 && idx == navHistory.at(navHistoryIdx - 1)) {
         return;
     }
     // make sure that the history doesn't grow overly large
@@ -903,11 +918,11 @@ void EbookController::AddNavPoint() {
 }
 
 bool EbookController::CanNavigate(int dir) const {
-    CrashIf(navHistoryIdx > navHistory.Count());
+    CrashIf(navHistoryIdx > navHistory.size());
     if (dir < 0) {
         return navHistoryIdx >= (size_t)-dir;
     }
-    return navHistoryIdx + dir < navHistory.Count();
+    return navHistoryIdx + dir < navHistory.size();
 }
 
 void EbookController::Navigate(int dir) {
@@ -916,13 +931,13 @@ void EbookController::Navigate(int dir) {
     }
     // update the current history entry
     int idx = currPageReparseIdx;
-    if (navHistoryIdx < navHistory.Count()) {
-        navHistory.At(navHistoryIdx) = idx;
+    if (navHistoryIdx < navHistory.size()) {
+        navHistory.at(navHistoryIdx) = idx;
     } else {
         navHistory.Append(idx);
     }
     navHistoryIdx += dir;
-    idx = navHistory.At(navHistoryIdx);
+    idx = navHistory.at(navHistoryIdx);
     int pageNo = PageForReparsePoint(pages, idx);
     if (0 == pageNo) {
         pageNo = GetMaxPageCount();

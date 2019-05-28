@@ -1,10 +1,10 @@
-/* Copyright 2015 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2018 the SumatraPDF project authors (see AUTHORS file).
    License: Simplified BSD (see COPYING.BSD) */
 
 #include "BaseUtil.h"
 #include "StrSlice.h"
 #include "TxtParser.h"
-#include <new>  // for placement new
+#include <new> // for placement new
 
 // unbreak placement new introduced by defining new as DEBUG_NEW
 #ifdef new
@@ -28,22 +28,90 @@ a given line either as a simple string or key/value pair. It's
 up to the caller to interpret the data.
 */
 
-static TxtNode *AllocTxtNode(Allocator *allocator, TxtNodeType nodeType)
-{
-    void *p = Allocator::AllocZero(allocator, sizeof(TxtNode));
-    TxtNode *node = new (p) TxtNode(nodeType);
-    CrashIf(!node);
-    if (TextNode != nodeType) {
-        p = Allocator::AllocZero(allocator, sizeof(Vec<TxtNode*>));
-        node->children = new (p) Vec<TxtNode*>(0, allocator);
+void TxtNode::AddChild(TxtNode* child) {
+    if (firstChild == nullptr) {
+        firstChild = child;
+        return;
     }
+    TxtNode** curr = &(firstChild->sibling);
+    while (*curr != nullptr) {
+        curr = &((*curr)->sibling);
+    }
+    *curr = child;
+}
+
+size_t TxtNode::KeyLen() const {
+    return keyEnd - keyStart;
+}
+
+size_t TxtNode::ValLen() const {
+    return valEnd - valStart;
+}
+
+bool TxtNode::IsArray() const {
+    return Type::Array == type;
+}
+
+bool TxtNode::IsStruct() const {
+    return Type::Struct == type;
+}
+
+bool TxtNode::IsStructWithName(const char* name, size_t nameLen) const {
+    if (Type::Struct != type) {
+        return false;
+    }
+    if (nameLen != KeyLen()) {
+        return false;
+    }
+    return str::EqNI(keyStart, name, nameLen);
+}
+
+bool TxtNode::IsStructWithName(const char* name) const {
+    return IsStructWithName(name, str::Len(name));
+}
+
+bool TxtNode::IsText() const {
+    return Type::Text == type;
+}
+
+bool TxtNode::IsTextWithKey(const char* name) const {
+    if (Type::Text != type) {
+        return false;
+    }
+    if (!keyStart) {
+        return false;
+    }
+    size_t nameLen = str::Len(name);
+    if (nameLen != KeyLen()) {
+        return false;
+    }
+    return str::EqNI(keyStart, name, nameLen);
+}
+
+char* TxtNode::KeyDup() const {
+    if (!keyStart) {
+        return nullptr;
+    }
+    return str::DupN(keyStart, KeyLen());
+}
+
+char* TxtNode::ValDup() const {
+    if (!valStart) {
+        return nullptr;
+    }
+    return str::DupN(valStart, ValLen());
+}
+
+TxtNode* TxtParser::AllocTxtNode(TxtNode::Type nodeType) {
+    void* p = Allocator::Alloc<TxtNode>(&allocator);
+    TxtNode* node = new (p) TxtNode(nodeType);
+    CrashIf(!node);
     return node;
 }
 
-static TxtNode *TxtNodeFromToken(Allocator *allocator, TokenVal& tok, TxtNodeType nodeType)
-{
-    AssertCrash((TextNode == nodeType) || (StructNode == nodeType));
-    TxtNode *node = AllocTxtNode(allocator, nodeType);
+TxtNode* TxtParser::AllocTxtNodeFromToken(const Token& tok, TxtNode::Type nodeType) {
+    AssertCrash((TxtNode::Type::Text == nodeType) || (TxtNode::Type::Struct == nodeType));
+    TxtNode* node = AllocTxtNode(nodeType);
     node->lineStart = tok.lineStart;
     node->valStart = tok.valStart;
     node->valEnd = tok.valEnd;
@@ -52,17 +120,29 @@ static TxtNode *TxtNodeFromToken(Allocator *allocator, TokenVal& tok, TxtNodeTyp
     return node;
 }
 
-static bool IsCommentStartChar(char c)
-{
-    return (';' == c ) || ('#' == c);
+// we will modify s in-place
+void TxtParser::SetToParse(const std::string_view& str) {
+    auto tmp = str::conv::UnknownToUtf8(str);
+    data = tmp.StealData();
+    char* d = data.data;
+    size_t sLen = data.size;
+    size_t n = str::NormalizeNewlinesInPlace(d, d + sLen);
+    toParse.Set(d, n);
+
+    // we create an implicit array node to hold the nodes we'll parse
+    CrashIf(0 != nodes.size());
+    nodes.push_back(AllocTxtNode(TxtNode::Type::Array));
+}
+
+static bool IsCommentStartChar(char c) {
+    return (';' == c) || ('#' == c);
 }
 
 // unescapes a string until a newline (\n)
 // returns the end of unescaped string
-static char *UnescapeLineInPlace(char *&sInOut, char *e, char escapeChar)
-{
-    char *s = sInOut;
-    char *dst = s;
+static char* UnescapeLineInPlace(char*& sInOut, char* e, char escapeChar) {
+    char* s = sInOut;
+    char* dst = s;
     while ((s < e) && (*s != '\n')) {
         if (escapeChar != *s) {
             *dst++ = *s++;
@@ -70,7 +150,7 @@ static char *UnescapeLineInPlace(char *&sInOut, char *e, char escapeChar)
         }
 
         // ignore unexpected lone escape char
-        if (s+1 >= e) {
+        if (s + 1 >= e) {
             *dst++ = *s++;
             continue;
         }
@@ -83,21 +163,21 @@ static char *UnescapeLineInPlace(char *&sInOut, char *e, char escapeChar)
         }
 
         switch (c) {
-        case '[':
-        case ']':
-            *dst++ = c;
-            break;
-        case 'r':
-            *dst++ = '\r';
-            break;
-        case 'n':
-            *dst++ = '\n';
-            break;
-        default:
-            // invalid escaping sequence. we preserve it
-            *dst++ = escapeChar;
-            *dst++ = c;
-            break;
+            case '[':
+            case ']':
+                *dst++ = c;
+                break;
+            case 'r':
+                *dst++ = '\r';
+                break;
+            case 'n':
+                *dst++ = '\n';
+                break;
+            default:
+                // invalid escaping sequence. we preserve it
+                *dst++ = escapeChar;
+                *dst++ = c;
+                break;
         }
     }
     sInOut = s;
@@ -105,17 +185,16 @@ static char *UnescapeLineInPlace(char *&sInOut, char *e, char escapeChar)
 }
 
 // parses "foo[: | (WS*=]WS*[WS*\n" (WS == whitespace
-static bool ParseStructStart(TxtParser& parser)
-{
+static bool ParseStructStart(TxtParser& parser) {
     // work on a copy in case we fail
     str::Slice slice = parser.toParse;
 
-    char *keyStart = slice.curr;
+    char* keyStart = slice.curr;
     slice.SkipNonWs();
     // "foo:  ["
     //      ^
 
-    char *keyEnd = slice.curr;
+    char* keyEnd = slice.curr;
     if (':' == slice.PrevChar()) {
         // "foo:  [  "
         //     ^ <- keyEnd
@@ -142,8 +221,8 @@ static bool ParseStructStart(TxtParser& parser)
     if (!(slice.Finished() || ('\n' == slice.CurrChar())))
         return false;
 
-    TokenVal& tok = parser.tok;
-    tok.type = TokenStructStart;
+    Token& tok = parser.tok;
+    tok.type = Token::Type::StructStart;
     tok.keyStart = keyStart;
     tok.keyEnd = keyEnd;
     *keyEnd = 0;
@@ -159,15 +238,14 @@ static bool ParseStructStart(TxtParser& parser)
 // parses "foo:WS${rest}" or "fooWS=WS${rest}"
 // if finds this pattern, sets parser.tok.keyStart and parser.tok.keyEnd
 // and positions slice at the beginning of ${rest}
-static bool ParseKey(TxtParser& parser)
-{
+static bool ParseKey(TxtParser& parser) {
     str::Slice slice = parser.toParse;
-    char *keyStart = slice.curr;
+    char* keyStart = slice.curr;
     slice.SkipNonWs();
     // "foo:  bar"
     //      ^
 
-    char *keyEnd = slice.curr;
+    char* keyEnd = slice.curr;
     if (':' == slice.PrevChar()) {
         // "foo:  bar"
         //     ^ <- keyEnd
@@ -196,10 +274,9 @@ static bool ParseKey(TxtParser& parser)
 // TODO: maybe also allow things like:
 // foo: [1 3 4]
 // i.e. a child on a single line
-static void ParseNextToken(TxtParser& parser)
-{
-    TokenVal& tok = parser.tok;
-    ZeroMemory(&tok, sizeof(TokenVal));
+static void ParseNextToken(TxtParser& parser) {
+    Token& tok = parser.tok;
+    ZeroMemory(&tok, sizeof(Token));
     str::Slice& slice = parser.toParse;
 
 Again:
@@ -208,7 +285,7 @@ Again:
     tok.lineStart = slice.curr;
     slice.SkipWsUntilNewline();
     if (slice.Finished()) {
-        tok.type = TokenFinished;
+        tok.type = Token::Type::Finished;
         return;
     }
 
@@ -224,7 +301,7 @@ Again:
     }
 
     if ('[' == c || ']' == c) {
-        tok.type = ('[' == c) ? TokenArrayStart : TokenClose;
+        tok.type = ('[' == c) ? Token::Type::ArrayStart : Token::Type::Close;
         slice.ZeroCurr();
         slice.Skip(1);
         slice.SkipWsUntilNewline();
@@ -238,14 +315,14 @@ Again:
     if (ParseStructStart(parser))
         return;
 
-    tok.type = TokenString;
+    tok.type = Token::Type::String;
     ParseKey(parser);
 
     // "  foo:  bar"
     //          ^
     tok.valStart = slice.curr;
-    char *origEnd = slice.curr;
-    char *valEnd = UnescapeLineInPlace(origEnd, slice.end, parser.escapeChar);
+    char* origEnd = slice.curr;
+    char* valEnd = UnescapeLineInPlace(origEnd, slice.end, parser.escapeChar);
     CrashIf((origEnd < slice.end) && (*origEnd != '\n'));
     if (valEnd < slice.end)
         *valEnd = 0;
@@ -257,136 +334,110 @@ Again:
     return;
 }
 
-static void ParseNodes(TxtParser& parser)
-{
-    TxtNode *currNode = nullptr;
+static void ParseNodes(TxtParser& parser) {
+    TxtNode* currNode = nullptr;
     for (;;) {
         ParseNextToken(parser);
-        TokenVal& tok = parser.tok;
+        Token& tok = parser.tok;
 
-        if (TokenFinished == tok.type) {
+        if (Token::Type::Finished == tok.type) {
             // we expect to end up with the implicit array node we created at start
-            if (parser.nodes.Count() != 1)
+            if (parser.nodes.size() != 1) {
                 goto Failed;
+            }
             return;
         }
 
-        if (TokenString == tok.type || TokenKeyVal == tok.type) {
-            currNode = TxtNodeFromToken(parser.allocator, tok, TextNode);
-        } else if (TokenArrayStart == tok.type) {
-            currNode = AllocTxtNode(parser.allocator, ArrayNode);
-        } else if (TokenStructStart == tok.type) {
-            currNode = TxtNodeFromToken(parser.allocator, tok, StructNode);
+        if (Token::Type::String == tok.type || Token::Type::KeyVal == tok.type) {
+            currNode = parser.AllocTxtNodeFromToken(tok, TxtNode::Type::Text);
+        } else if (Token::Type::ArrayStart == tok.type) {
+            currNode = parser.AllocTxtNode(TxtNode::Type::Array);
+        } else if (Token::Type::StructStart == tok.type) {
+            currNode = parser.AllocTxtNodeFromToken(tok, TxtNode::Type::Struct);
         } else {
-            CrashIf(TokenClose != tok.type);
+            CrashIf(Token::Type::Close != tok.type);
             // if the only node left is the implict array node we created,
             // this is an error
-            if (1 == parser.nodes.Count())
+            if (1 == parser.nodes.size()) {
                 goto Failed;
-            parser.nodes.Pop();
+            }
+            parser.nodes.pop_back();
             continue;
         }
-        TxtNode *currParent = parser.nodes.At(parser.nodes.Count() - 1);
-        currParent->children->Append(currNode);
-        if (TextNode != currNode->type)
-            parser.nodes.Append(currNode);
+        TxtNode* currParent = parser.nodes.at(parser.nodes.size() - 1);
+        currParent->AddChild(currNode);
+        if (TxtNode::Type::Text != currNode->type) {
+            parser.nodes.push_back(currNode);
+        }
     }
 Failed:
     parser.failed = true;
 }
 
-static void SkipUtf8Bom(char *& s, size_t& sLen)
-{
-    if (sLen >= 3 && str::EqN(s, UTF8_BOM, 3)) {
-        s += 3;
-        sLen -= 3;
-    }
-}
-
-// we will modify s in-place
-void TxtParser::SetToParse(char *s, size_t sLen)
-{
-    char *tmp = str::conv::UnknownToUtf8(s, sLen);
-    if (tmp != s) {
-        toFree = tmp;
-        s = tmp;
-        sLen = str::Len(s);
-    }
-    SkipUtf8Bom(s, sLen);
-    size_t n = str::NormalizeNewlinesInPlace(s, s + sLen);
-    toParse.Init(s, n);
-
-    // we create an implicit array node to hold the nodes we'll parse
-    CrashIf(0 != nodes.Count());
-    nodes.Append(AllocTxtNode(allocator, ArrayNode));
-}
-
-bool ParseTxt(TxtParser& parser)
-{
+bool ParseTxt(TxtParser& parser) {
     ParseNodes(parser);
-    if (parser.failed)
+    if (parser.failed) {
         return false;
+    }
     return true;
 }
 
-static void AppendNest(str::Str<char>& s, int nest)
-{
+static void AppendNest(str::Str<char>& s, int nest) {
     while (nest > 0) {
-        s.Append("  ");
+        s.Append("    ");
         --nest;
     }
 }
 
-static void AppendWsTrimEnd(str::Str<char>& res, char *s, char *e)
-{
+static void AppendWsTrimEnd(str::Str<char>& res, char* s, char* e) {
     str::TrimWsEnd(s, e);
     res.Append(s, e - s);
 }
 
-static void PrettyPrintKeyVal(TxtNode *curr, int nest, str::Str<char>& res)
-{
+static void PrettyPrintKeyVal(TxtNode* curr, int nest, str::Str<char>& res) {
     AppendNest(res, nest);
     if (curr->keyStart) {
         AppendWsTrimEnd(res, curr->keyStart, curr->keyEnd);
-        if (StructNode != curr->type)
-            res.Append(" + ");
+        if (!curr->IsStruct()) {
+            res.Append(": ");
+        }
     }
     AppendWsTrimEnd(res, curr->valStart, curr->valEnd);
-    if (StructNode != curr->type)
+    if (!curr->IsStruct()) {
         res.Append("\n");
+    }
 }
 
-static void PrettyPrintNode(TxtNode *curr, int nest, str::Str<char>& res)
-{
-    if (TextNode == curr->type) {
+static void PrettyPrintNode(TxtNode* curr, int nest, str::Str<char>& res) {
+    if (curr->IsText()) {
         PrettyPrintKeyVal(curr, nest, res);
         return;
     }
 
-    if (StructNode == curr->type) {
+    if (curr->IsStruct()) {
         PrettyPrintKeyVal(curr, nest, res);
-        res.Append(" + [\n");
+        res.Append(" [\n");
     } else if (nest >= 0) {
-        CrashIf(ArrayNode != curr->type);
+        CrashIf(!curr->IsArray());
         AppendNest(res, nest);
         res.Append("[\n");
     }
 
-    TxtNode *child;
-    for (size_t i = 0; i < curr->children->Count(); i++) {
-        child = curr->children->At(i);
+    for (TxtNode* child = curr->firstChild; child != nullptr; child = child->sibling) {
         PrettyPrintNode(child, nest + 1, res);
     }
 
     if (nest >= 0) {
         AppendNest(res, nest);
         res.Append("]\n");
+        if (nest == 0) {
+            res.Append("\n");
+        }
     }
 }
 
-char *PrettyPrintTxt(const TxtParser& parser)
-{
+OwnedData PrettyPrintTxt(const TxtParser& parser) {
     str::Str<char> res;
-    PrettyPrintNode(parser.nodes.At(0), -1, res);
-    return res.StealData();
+    PrettyPrintNode(parser.nodes.at(0), -1, res);
+    return res.StealAsOwnedData();
 }

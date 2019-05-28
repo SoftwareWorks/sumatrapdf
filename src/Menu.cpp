@@ -1,12 +1,13 @@
-/* Copyright 2015 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2018 the SumatraPDF project authors (see AUTHORS file).
    License: GPLv3 */
 
-#include "BaseUtil.h"
-#include "CmdLineParser.h"
-#include "FileUtil.h"
-#include "HtmlParserLookup.h"
-#include "Mui.h"
-#include "WinUtil.h"
+#include "utils/BaseUtil.h"
+#include "utils/ScopedWin.h"
+#include "utils/CmdLineParser.h"
+#include "utils/FileUtil.h"
+#include "utils/HtmlParserLookup.h"
+#include "mui/Mui.h"
+#include "utils/WinUtil.h"
 
 #include "BaseEngine.h"
 #include "EngineManager.h"
@@ -18,7 +19,8 @@
 #include "Theme.h"
 #include "GlobalPrefs.h"
 #include "Colors.h"
-
+#include "ProgressUpdateUI.h"
+#include "Notifications.h"
 #include "SumatraPDF.h"
 #include "WindowInfo.h"
 #include "TabInfo.h"
@@ -31,8 +33,8 @@
 #include "SumatraAbout.h"
 #include "SumatraDialogs.h"
 #include "Translations.h"
-#include "BitManip.h"
-#include "Dpi.h"
+#include "utils/BitManip.h"
+#include "utils/Dpi.h"
 
 void MenuUpdateDisplayMode(WindowInfo* win) {
     bool enabled = win->IsDocLoaded();
@@ -306,7 +308,7 @@ static void AppendRecentFilesToMenu(HMENU m) {
 }
 
 static void AppendExternalViewersToMenu(HMENU menuFile, const WCHAR* filePath) {
-    if (0 == gGlobalPrefs->externalViewers->Count()) {
+    if (0 == gGlobalPrefs->externalViewers->size()) {
         return;
     }
     if (!HasPermission(Perm_DiskAccess) || (filePath && !file::Exists(filePath))) {
@@ -315,8 +317,8 @@ static void AppendExternalViewersToMenu(HMENU menuFile, const WCHAR* filePath) {
 
     const int maxEntries = IDM_OPEN_WITH_EXTERNAL_LAST - IDM_OPEN_WITH_EXTERNAL_FIRST + 1;
     int count = 0;
-    for (size_t i = 0; i < gGlobalPrefs->externalViewers->Count() && count < maxEntries; i++) {
-        ExternalViewer* ev = gGlobalPrefs->externalViewers->At(i);
+    for (size_t i = 0; i < gGlobalPrefs->externalViewers->size() && count < maxEntries; i++) {
+        ExternalViewer* ev = gGlobalPrefs->externalViewers->at(i);
         if (!ev->commandLine) {
             continue;
         }
@@ -329,10 +331,10 @@ static void AppendExternalViewersToMenu(HMENU menuFile, const WCHAR* filePath) {
         if (str::IsEmpty(name)) {
             WStrVec args;
             ParseCmdLine(ev->commandLine, args, 2);
-            if (args.Count() == 0) {
+            if (args.size() == 0) {
                 continue;
             }
-            appName.SetCopy(path::GetBaseName(args.At(0)));
+            appName.SetCopy(path::GetBaseName(args.at(0)));
             *(WCHAR*)path::GetExt(appName) = '\0';
         }
 
@@ -442,8 +444,8 @@ void MenuUpdatePrintItem(WindowInfo* win, HMENU menu, bool disableOnly = false) 
 }
 
 static bool IsFileCloseMenuEnabled() {
-    for (size_t i = 0; i < gWindows.Count(); i++) {
-        if (!gWindows.At(i)->IsAboutWindow()) {
+    for (size_t i = 0; i < gWindows.size(); i++) {
+        if (!gWindows.at(i)->IsAboutWindow()) {
             return true;
         }
     }
@@ -545,9 +547,9 @@ void MenuUpdateStateForWindow(WindowInfo* win) {
     win::menu::SetChecked(win->menu, IDM_DEBUG_SHOW_LINKS, gDebugShowLinks);
     win::menu::SetChecked(win->menu, IDM_DEBUG_EBOOK_UI, gGlobalPrefs->ebookUI.useFixedPageUI);
     win::menu::SetChecked(win->menu, IDM_DEBUG_MUI, mui::IsDebugPaint());
-    win::menu::SetEnabled(win->menu, IDM_DEBUG_ANNOTATION, tab && tab->selectionOnPage && win->showSelection &&
-                                                               tab->AsFixed() &&
-                                                               tab->AsFixed()->GetEngine()->SupportsAnnotation());
+    win::menu::SetEnabled(win->menu, IDM_DEBUG_ANNOTATION,
+                          tab && tab->selectionOnPage && win->showSelection && tab->AsFixed() &&
+                              tab->AsFixed()->GetEngine()->SupportsAnnotation());
 #endif
 }
 
@@ -562,7 +564,7 @@ void OnAboutContextMenu(WindowInfo* win, int x, int y) {
         return;
     }
 
-    DisplayState* state = gFileHistory.Find(filePath);
+    DisplayState* state = gFileHistory.Find(filePath, nullptr);
     CrashIf(!state);
     if (!state) {
         return;
@@ -591,7 +593,7 @@ void OnAboutContextMenu(WindowInfo* win, int x, int y) {
     }
 
     if (IDM_FORGET_SELECTED_DOCUMENT == cmd) {
-        if (state->favorites->Count() > 0) {
+        if (state->favorites->size() > 0) {
             // just hide documents with favorites
             gFileHistory.MarkFileInexistent(state->filePath, true);
         } else {
@@ -618,13 +620,13 @@ void OnContextMenu(WindowInfo* win, int x, int y) {
     }
 
     HMENU popup = BuildMenuFromMenuDef(menuDefContext, dimof(menuDefContext), CreatePopupMenu());
-    if (!pageEl || pageEl->GetType() != Element_Link || !value) {
+    if (!pageEl || pageEl->GetType() != PageElementType::Link || !value) {
         win::menu::Remove(popup, IDM_COPY_LINK_TARGET);
     }
-    if (!pageEl || pageEl->GetType() != Element_Comment || !value) {
+    if (!pageEl || pageEl->GetType() != PageElementType::Comment || !value) {
         win::menu::Remove(popup, IDM_COPY_COMMENT);
     }
-    if (!pageEl || pageEl->GetType() != Element_Image) {
+    if (!pageEl || pageEl->GetType() != PageElementType::Image) {
         win::menu::Remove(popup, IDM_COPY_IMAGE);
     }
 
@@ -752,7 +754,7 @@ void FreeMenuOwnerDrawInfo(MenuOwnerDrawInfo* modi) {
     auto it = std::remove(begin(g_menuDrawInfos), end(g_menuDrawInfos), modi);
     CrashIf(it == end(g_menuDrawInfos));
     g_menuDrawInfos.erase(it, end(g_menuDrawInfos));
-    free((void*)modi->text);
+    str::Free(modi->text);
     free(modi);
 }
 

@@ -1,14 +1,14 @@
-/* Copyright 2015 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2018 the SumatraPDF project authors (see AUTHORS file).
    License: Simplified BSD (see COPYING.BSD) */
 
-#include "BaseUtil.h"
-#include "Timer.h"
-#include "WinUtil.h"
-#include "HtmlParserLookup.h"
+#include "utils/BaseUtil.h"
+#include "utils/Timer.h"
+#include "utils/WinUtil.h"
+#include "utils/HtmlParserLookup.h"
 #include "Mui.h"
-#include "FrameRateWnd.h"
+#include "wingui/FrameRateWnd.h"
 //#define NOLOG 0
-#include "DebugLog.h"
+#include "utils/DebugLog.h"
 
 namespace mui {
 
@@ -34,14 +34,18 @@ HwndWrapper::~HwndWrapper() {
 // Default size is (0,0) which is unlimited.
 // For top-level windows it's the size of the whole window, including
 // non-client area like borders, title area etc.
-void HwndWrapper::SetMinSize(Size s) { evtMgr->SetMinSize(s); }
+void HwndWrapper::SetMinSize(Size s) {
+    evtMgr->SetMinSize(s);
+}
 
 // Set maximum size for the HWND represented by this HwndWrapper.
 // It is enforced in EventManager.
 // Default size is (0,0) which is unlimited.
 // For top-level windows it's the size of the whole window, including
 // non-client area like borders, title area etc.
-void HwndWrapper::SetMaxSize(Size s) { evtMgr->SetMaxSize(s); }
+void HwndWrapper::SetMaxSize(Size s) {
+    evtMgr->SetMaxSize(s);
+}
 
 void HwndWrapper::SetHwnd(HWND hwnd) {
     CrashIf(nullptr != hwndParent);
@@ -54,8 +58,8 @@ Size HwndWrapper::Measure(const Size availableSize) {
     if (layout) {
         return layout->Measure(availableSize);
     }
-    if (children.Count() == 1) {
-        ILayout *l = children.At(0);
+    if (children.size() == 1) {
+        ILayout* l = children.at(0);
         return l->Measure(availableSize);
     }
     desiredSize = Size();
@@ -67,8 +71,8 @@ void HwndWrapper::Arrange(const Rect finalRect) {
         // might over-write position if our layout knows about us
         layout->Arrange(finalRect);
     } else {
-        if (children.Count() == 1) {
-            ILayout *l = children.At(0);
+        if (children.size() == 1) {
+            ILayout* l = children.at(0);
             l->Arrange(finalRect);
         }
     }
@@ -120,8 +124,9 @@ void HwndWrapper::RequestLayout() {
 }
 
 void HwndWrapper::LayoutIfRequested() {
-    if (layoutRequested)
+    if (layoutRequested) {
         TopLevelLayout();
+    }
 }
 
 void HwndWrapper::OnPaint(HWND hwnd) {
@@ -129,10 +134,12 @@ void HwndWrapper::OnPaint(HWND hwnd) {
     Timer t;
     painter->Paint(hwnd, markedForRepaint);
     if (frameRateWnd) {
-        ShowFrameRateDur(frameRateWnd, t.GetTimeInMs());
+        frameRateWnd->ShowFrameRateDur(t.GetTimeInMs());
     }
     markedForRepaint = false;
 }
 
-bool HwndWrapper::IsInSizeMove() const { return evtMgr->IsInSizeMove(); }
+bool HwndWrapper::IsInSizeMove() const {
+    return evtMgr->IsInSizeMove();
 }
+} // namespace mui

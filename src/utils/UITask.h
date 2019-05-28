@@ -1,4 +1,4 @@
-/* Copyright 2015 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2018 the SumatraPDF project authors (see AUTHORS file).
    License: Simplified BSD (see COPYING.BSD) */
 
 namespace uitask {
@@ -10,5 +10,5 @@ void Destroy();
 // call only from the same thread as Initialize() and Destroy()
 void DrainQueue();
 
-void Post(const std::function<void()> &);
-}
+void Post(const std::function<void()>&);
+} // namespace uitask

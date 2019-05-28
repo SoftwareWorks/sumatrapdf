@@ -1,4 +1,4 @@
-/* Copyright 2015 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2018 the SumatraPDF project authors (see AUTHORS file).
    License: Simplified BSD (see COPYING.BSD) */
 
 // the following are only defined if _WIN32_WINNT >= 0x0600 and we use 0x0500
@@ -68,24 +68,16 @@ bool CreateShortcut(const WCHAR* shortcutPath, const WCHAR* exePath, const WCHAR
 IDataObject* GetDataObjectForFile(const WCHAR* filePath, HWND hwnd = nullptr);
 DWORD GetFileVersion(const WCHAR* path);
 
-inline bool IsKeyPressed(int key) {
-    return GetKeyState(key) & 0x8000 ? true : false;
-}
-inline bool IsShiftPressed() {
-    return IsKeyPressed(VK_SHIFT);
-}
-inline bool IsAltPressed() {
-    return IsKeyPressed(VK_MENU);
-}
-inline bool IsCtrlPressed() {
-    return IsKeyPressed(VK_CONTROL);
-}
+bool IsKeyPressed(int key);
+bool IsShiftPressed();
+bool IsAltPressed();
+bool IsCtrlPressed();
 
 HFONT CreateSimpleFont(HDC hdc, const WCHAR* fontName, int fontSize);
 
 RectI ShiftRectToWorkArea(RectI rect, bool bFully = false);
 RectI GetWorkAreaRect(RectI rect);
-RectI GetFullscreenRect(HWND hwnd);
+RectI GetFullscreenRect(HWND);
 RectI GetVirtualScreenRect();
 
 bool LaunchFile(const WCHAR* path, const WCHAR* params = nullptr, const WCHAR* verb = nullptr, bool hidden = false);
@@ -99,23 +91,30 @@ SizeI TextSizeInHwnd(HWND, const WCHAR*, HFONT = nullptr);
 SIZE TextSizeInHwnd2(HWND, const WCHAR*, HFONT);
 SizeI TextSizeInDC(HDC, const WCHAR*);
 
+bool IsFocused(HWND);
 bool IsCursorOverWindow(HWND);
 bool GetCursorPosInHwnd(HWND, PointI&);
 void CenterDialog(HWND hDlg, HWND hParent = nullptr);
 WCHAR* GetDefaultPrinterName();
 bool CopyTextToClipboard(const WCHAR* text, bool appendOnly = false);
 bool CopyImageToClipboard(HBITMAP hbmp, bool appendOnly);
-void ToggleWindowStyle(HWND hwnd, DWORD flag, bool enable, int type = GWL_STYLE);
+void ToggleWindowStyle(HWND hwnd, DWORD flags, bool enable);
+void ToggleWindowExStyle(HWND hwnd, DWORD flags, bool enable);
+bool IsRtl(HWND hwnd);
+void SetRtl(HWND hwnd, bool isRtl);
 RectI ChildPosWithinParent(HWND);
 HFONT GetDefaultGuiFont();
 long GetDefaultGuiFontSize();
 
 IStream* CreateStreamFromData(const void* data, size_t len);
-void* GetDataFromStream(IStream* stream, size_t* len, HRESULT* res_opt = nullptr);
+// TODO: remove remaining usage
+void* GetDataFromStream(IStream* stream, size_t* len, HRESULT* resOpt = nullptr);
+OwnedData GetDataFromStream(IStream* stream, HRESULT* resOpt = nullptr);
+OwnedData GetStreamOrFileData(IStream* stream, const WCHAR* filePath);
+u8* GetStreamOrFileData(IStream* stream, const WCHAR* filePath, size_t* cbCount);
 bool ReadDataFromStream(IStream* stream, void* buffer, size_t len, size_t offset = 0);
 UINT GuessTextCodepage(const char* data, size_t len, UINT defVal = CP_ACP);
 WCHAR* NormalizeString(const WCHAR* str, int /* NORM_FORM */ form);
-bool IsRtl(HWND hwnd);
 void ResizeHwndToClientArea(HWND hwnd, int dx, int dy, bool hasMenu);
 void ResizeWindow(HWND, int dx, int dy);
 
@@ -127,6 +126,10 @@ void RepaintNow(HWND hwnd);
 
 inline BOOL toBOOL(bool b) {
     return b ? TRUE : FALSE;
+}
+
+inline bool fromBOOL(BOOL b) {
+    return b ? true : false;
 }
 
 namespace win {
@@ -180,7 +183,7 @@ class DeferWinPosHelper {
 };
 
 struct BitmapPixels {
-    uint8* pixels;
+    u8* pixels;
     SizeI size;
     int nBytes;
     int nBytesPerPixel;

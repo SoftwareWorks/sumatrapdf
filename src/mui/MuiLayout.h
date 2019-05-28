@@ -1,4 +1,4 @@
-/* Copyright 2015 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2018 the SumatraPDF project authors (see AUTHORS file).
    License: Simplified BSD (see COPYING.BSD) */
 
 // WPF-like layout system. Measure() should update DesiredSize()
@@ -57,8 +57,7 @@ struct DirectionalLayoutData {
     // desiredSize of the element after Measure() step
     Size desiredSize;
 
-    DirectionalLayoutData()
-        : alignNonLayoutAxis(GetElAlignCenter()) {}
+    DirectionalLayoutData() : alignNonLayoutAxis(GetElAlignCenter()) {}
 
     DirectionalLayoutData(const DirectionalLayoutData& other)
         : element(other.element),

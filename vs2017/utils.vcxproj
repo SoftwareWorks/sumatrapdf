@@ -43,7 +43,7 @@
     <ConfigurationType>StaticLibrary</ConfigurationType>
     <UseDebugLibraries>true</UseDebugLibraries>
     <CharacterSet>Unicode</CharacterSet>
-    <PlatformToolset>v141_xp</PlatformToolset>
+    <PlatformToolset>v141</PlatformToolset>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'" Label="Configuration">
     <ConfigurationType>StaticLibrary</ConfigurationType>
@@ -56,21 +56,21 @@
     <ConfigurationType>StaticLibrary</ConfigurationType>
     <UseDebugLibraries>false</UseDebugLibraries>
     <CharacterSet>Unicode</CharacterSet>
-    <PlatformToolset>v141_xp</PlatformToolset>
+    <PlatformToolset>v141</PlatformToolset>
     <WholeProgramOptimization>true</WholeProgramOptimization>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='ReleasePrefast|Win32'" Label="Configuration">
     <ConfigurationType>StaticLibrary</ConfigurationType>
     <UseDebugLibraries>false</UseDebugLibraries>
     <CharacterSet>Unicode</CharacterSet>
-    <PlatformToolset>v140</PlatformToolset>
+    <PlatformToolset>v141</PlatformToolset>
     <WholeProgramOptimization>true</WholeProgramOptimization>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='ReleasePrefast|x64'" Label="Configuration">
     <ConfigurationType>StaticLibrary</ConfigurationType>
     <UseDebugLibraries>false</UseDebugLibraries>
     <CharacterSet>Unicode</CharacterSet>
-    <PlatformToolset>v140</PlatformToolset>
+    <PlatformToolset>v141</PlatformToolset>
     <WholeProgramOptimization>true</WholeProgramOptimization>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
@@ -136,9 +136,9 @@
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <WarningLevel>Level4</WarningLevel>
       <TreatWarningAsError>true</TreatWarningAsError>
-      <DisableSpecificWarnings>4127;4324;4458;4800;4838;%(DisableSpecificWarnings)</DisableSpecificWarnings>
+      <DisableSpecificWarnings>4127;4189;4324;4458;4800;4838;%(DisableSpecificWarnings)</DisableSpecificWarnings>
       <PreprocessorDefinitions>WIN32;_WIN32;_CRT_SECURE_NO_WARNINGS;WINVER=0x0501;_WIN32_WINNT=0x0501;DEBUG;_HAS_EXCEPTIONS=0;%(PreprocessorDefinitions)</PreprocessorDefinitions>
-      <AdditionalIncludeDirectories>..\src\utils;..\src\wingui;..\src\mui;..\ext\zlib;..\ext\lzma\C;..\ext\libwebp;..\ext\unarr;..\mupdf\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>..\src;..\ext\zlib;..\ext\lzma\C;..\ext\libwebp;..\ext\unarr;..\mupdf\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <DebugInformationFormat>EditAndContinue</DebugInformationFormat>
       <Optimization>Disabled</Optimization>
       <MinimalRebuild>false</MinimalRebuild>
@@ -151,20 +151,18 @@
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
-      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <FullProgramDatabaseFile>true</FullProgramDatabaseFile>
+      <GenerateDebugInformation>DebugFastLink</GenerateDebugInformation>
     </Link>
-    <Lib>
-      <TreatLibWarningAsErrors>true</TreatLibWarningAsErrors>
-    </Lib>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <ClCompile>
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <WarningLevel>Level4</WarningLevel>
       <TreatWarningAsError>true</TreatWarningAsError>
-      <DisableSpecificWarnings>4127;4324;4458;4800;4838;%(DisableSpecificWarnings)</DisableSpecificWarnings>
+      <DisableSpecificWarnings>4127;4189;4324;4458;4800;4838;%(DisableSpecificWarnings)</DisableSpecificWarnings>
       <PreprocessorDefinitions>WIN32;_WIN32;_CRT_SECURE_NO_WARNINGS;WINVER=0x0501;_WIN32_WINNT=0x0501;DEBUG;_HAS_EXCEPTIONS=0;%(PreprocessorDefinitions)</PreprocessorDefinitions>
-      <AdditionalIncludeDirectories>..\src\utils;..\src\wingui;..\src\mui;..\ext\zlib;..\ext\lzma\C;..\ext\libwebp;..\ext\unarr;..\mupdf\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>..\src;..\ext\zlib;..\ext\lzma\C;..\ext\libwebp;..\ext\unarr;..\mupdf\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <DebugInformationFormat>EditAndContinue</DebugInformationFormat>
       <Optimization>Disabled</Optimization>
       <MinimalRebuild>false</MinimalRebuild>
@@ -176,21 +174,18 @@
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
-      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <FullProgramDatabaseFile>true</FullProgramDatabaseFile>
+      <GenerateDebugInformation>DebugFastLink</GenerateDebugInformation>
     </Link>
-    <Lib>
-      <TreatLibWarningAsErrors>true</TreatLibWarningAsErrors>
-    </Lib>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
     <ClCompile>
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <WarningLevel>Level4</WarningLevel>
       <TreatWarningAsError>true</TreatWarningAsError>
-      <DisableSpecificWarnings>4127;4324;4458;4800;4838;%(DisableSpecificWarnings)</DisableSpecificWarnings>
+      <DisableSpecificWarnings>4127;4189;4324;4458;4800;4838;%(DisableSpecificWarnings)</DisableSpecificWarnings>
       <PreprocessorDefinitions>WIN32;_WIN32;_CRT_SECURE_NO_WARNINGS;WINVER=0x0501;_WIN32_WINNT=0x0501;NDEBUG;_HAS_EXCEPTIONS=0;%(PreprocessorDefinitions)</PreprocessorDefinitions>
-      <AdditionalIncludeDirectories>..\src\utils;..\src\wingui;..\src\mui;..\ext\zlib;..\ext\lzma\C;..\ext\libwebp;..\ext\unarr;..\mupdf\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
-      <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
+      <AdditionalIncludeDirectories>..\src;..\ext\zlib;..\ext\lzma\C;..\ext\libwebp;..\ext\unarr;..\mupdf\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <Optimization>Full</Optimization>
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
@@ -205,23 +200,19 @@
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
-      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <GenerateDebugInformation>DebugFull</GenerateDebugInformation>
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <OptimizeReferences>true</OptimizeReferences>
     </Link>
-    <Lib>
-      <TreatLibWarningAsErrors>true</TreatLibWarningAsErrors>
-    </Lib>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <ClCompile>
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <WarningLevel>Level4</WarningLevel>
       <TreatWarningAsError>true</TreatWarningAsError>
-      <DisableSpecificWarnings>4127;4324;4458;4800;4838;%(DisableSpecificWarnings)</DisableSpecificWarnings>
+      <DisableSpecificWarnings>4127;4189;4324;4458;4800;4838;%(DisableSpecificWarnings)</DisableSpecificWarnings>
       <PreprocessorDefinitions>WIN32;_WIN32;_CRT_SECURE_NO_WARNINGS;WINVER=0x0501;_WIN32_WINNT=0x0501;NDEBUG;_HAS_EXCEPTIONS=0;%(PreprocessorDefinitions)</PreprocessorDefinitions>
-      <AdditionalIncludeDirectories>..\src\utils;..\src\wingui;..\src\mui;..\ext\zlib;..\ext\lzma\C;..\ext\libwebp;..\ext\unarr;..\mupdf\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
-      <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
+      <AdditionalIncludeDirectories>..\src;..\ext\zlib;..\ext\lzma\C;..\ext\libwebp;..\ext\unarr;..\mupdf\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <Optimization>Full</Optimization>
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
@@ -235,21 +226,18 @@
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
-      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <GenerateDebugInformation>DebugFull</GenerateDebugInformation>
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <OptimizeReferences>true</OptimizeReferences>
     </Link>
-    <Lib>
-      <TreatLibWarningAsErrors>true</TreatLibWarningAsErrors>
-    </Lib>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='ReleasePrefast|Win32'">
     <ClCompile>
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <WarningLevel>Level4</WarningLevel>
-      <DisableSpecificWarnings>4127;4324;4458;4800;28125;28252;28253;4838;%(DisableSpecificWarnings)</DisableSpecificWarnings>
+      <DisableSpecificWarnings>4127;4189;4324;4458;4800;28125;28252;28253;4838;%(DisableSpecificWarnings)</DisableSpecificWarnings>
       <PreprocessorDefinitions>WIN32;_WIN32;_CRT_SECURE_NO_WARNINGS;WINVER=0x0501;_WIN32_WINNT=0x0501;NDEBUG;_HAS_EXCEPTIONS=0;%(PreprocessorDefinitions)</PreprocessorDefinitions>
-      <AdditionalIncludeDirectories>..\src\utils;..\src\wingui;..\src\mui;..\ext\zlib;..\ext\lzma\C;..\ext\libwebp;..\ext\unarr;..\mupdf\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>..\src;..\ext\zlib;..\ext\lzma\C;..\ext\libwebp;..\ext\unarr;..\mupdf\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
       <Optimization>Full</Optimization>
       <FunctionLevelLinking>true</FunctionLevelLinking>
@@ -265,7 +253,8 @@
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
-      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <FullProgramDatabaseFile>true</FullProgramDatabaseFile>
+      <GenerateDebugInformation>DebugFastLink</GenerateDebugInformation>
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <OptimizeReferences>true</OptimizeReferences>
     </Link>
@@ -274,9 +263,9 @@
     <ClCompile>
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <WarningLevel>Level4</WarningLevel>
-      <DisableSpecificWarnings>4127;4324;4458;4800;28125;28252;28253;4838;%(DisableSpecificWarnings)</DisableSpecificWarnings>
+      <DisableSpecificWarnings>4127;4189;4324;4458;4800;28125;28252;28253;4838;%(DisableSpecificWarnings)</DisableSpecificWarnings>
       <PreprocessorDefinitions>WIN32;_WIN32;_CRT_SECURE_NO_WARNINGS;WINVER=0x0501;_WIN32_WINNT=0x0501;NDEBUG;_HAS_EXCEPTIONS=0;%(PreprocessorDefinitions)</PreprocessorDefinitions>
-      <AdditionalIncludeDirectories>..\src\utils;..\src\wingui;..\src\mui;..\ext\zlib;..\ext\lzma\C;..\ext\libwebp;..\ext\unarr;..\mupdf\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>..\src;..\ext\zlib;..\ext\lzma\C;..\ext\libwebp;..\ext\unarr;..\mupdf\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
       <Optimization>Full</Optimization>
       <FunctionLevelLinking>true</FunctionLevelLinking>
@@ -292,17 +281,20 @@
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
-      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <FullProgramDatabaseFile>true</FullProgramDatabaseFile>
+      <GenerateDebugInformation>DebugFastLink</GenerateDebugInformation>
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <OptimizeReferences>true</OptimizeReferences>
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClInclude Include="..\src\utils\ArchUtil.h" />
+    <ClInclude Include="..\src\utils\ApiHook.h" />
+    <ClInclude Include="..\src\utils\Archive.h" />
     <ClInclude Include="..\src\utils\BaseUtil.h" />
     <ClInclude Include="..\src\utils\BitReader.h" />
     <ClInclude Include="..\src\utils\BuildConfig.h" />
     <ClInclude Include="..\src\utils\ByteOrderDecoder.h" />
+    <ClInclude Include="..\src\utils\ByteWriter.h" />
     <ClInclude Include="..\src\utils\CmdLineParser.h" />
     <ClInclude Include="..\src\utils\CryptoUtil.h" />
     <ClInclude Include="..\src\utils\CssParser.h" />
@@ -311,7 +303,6 @@
     <ClInclude Include="..\src\utils\Dict.h" />
     <ClInclude Include="..\src\utils\DirIter.h" />
     <ClInclude Include="..\src\utils\Dpi.h" />
-    <ClInclude Include="..\src\utils\FileTransactions.h" />
     <ClInclude Include="..\src\utils\FileUtil.h" />
     <ClInclude Include="..\src\utils\FileWatcher.h" />
     <ClInclude Include="..\src\utils\FzImgReader.h" />
@@ -323,6 +314,7 @@
     <ClInclude Include="..\src\utils\HttpUtil.h" />
     <ClInclude Include="..\src\utils\JsonParser.h" />
     <ClInclude Include="..\src\utils\LzmaSimpleArchive.h" />
+    <ClInclude Include="..\src\utils\PEB.h" />
     <ClInclude Include="..\src\utils\SerializeTxt.h" />
     <ClInclude Include="..\src\utils\SettingsUtil.h" />
     <ClInclude Include="..\src\utils\SquareTreeParser.h" />
@@ -343,10 +335,12 @@
     <ClInclude Include="..\src\wingui\FrameRateWnd.h" />
     <ClInclude Include="..\src\wingui\LabelWithCloseWnd.h" />
     <ClInclude Include="..\src\wingui\SplitterWnd.h" />
+    <ClInclude Include="..\src\wingui\TreeCtrl.h" />
     <ClInclude Include="..\src\wingui\Win32Window.h" />
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="..\src\utils\ArchUtil.cpp" />
+    <ClCompile Include="..\src\utils\ApiHook.cpp" />
+    <ClCompile Include="..\src\utils\Archive.cpp" />
     <ClCompile Include="..\src\utils\BaseUtil.cpp" />
     <ClCompile Include="..\src\utils\BitReader.cpp" />
     <ClCompile Include="..\src\utils\ByteOrderDecoder.cpp" />
@@ -358,7 +352,6 @@
     <ClCompile Include="..\src\utils\Dict.cpp" />
     <ClCompile Include="..\src\utils\DirIter.cpp" />
     <ClCompile Include="..\src\utils\Dpi.cpp" />
-    <ClCompile Include="..\src\utils\FileTransactions.cpp" />
     <ClCompile Include="..\src\utils\FileUtil.cpp" />
     <ClCompile Include="..\src\utils\FileWatcher.cpp" />
     <ClCompile Include="..\src\utils\FzImgReader.cpp" />
@@ -376,6 +369,7 @@
     <ClCompile Include="..\src\utils\StrFormat.cpp" />
     <ClCompile Include="..\src\utils\StrSlice.cpp" />
     <ClCompile Include="..\src\utils\StrUtil.cpp" />
+    <ClCompile Include="..\src\utils\StrUtil_win.cpp" />
     <ClCompile Include="..\src\utils\TgaReader.cpp" />
     <ClCompile Include="..\src\utils\ThreadUtil.cpp" />
     <ClCompile Include="..\src\utils\TrivialHtmlParser.cpp" />
@@ -390,6 +384,7 @@
     <ClCompile Include="..\src\wingui\FrameRateWnd.cpp" />
     <ClCompile Include="..\src\wingui\LabelWithCloseWnd.cpp" />
     <ClCompile Include="..\src\wingui\SplitterWnd.cpp" />
+    <ClCompile Include="..\src\wingui\TreeCtrl.cpp" />
     <ClCompile Include="..\src\wingui\Win32Window.cpp" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

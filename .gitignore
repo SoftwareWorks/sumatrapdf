@@ -12,10 +12,12 @@ scripts/config.py
 scripts/secrets.json
 rel/
 rel64/
+rel64_unix/
 relPrefast/
 relPrefast64/
 dbg/
 dbg64/
+dbg64_unix/
 rel-mac/
 dbg-mac/
 builds/
@@ -24,9 +26,9 @@ vs2015/.vs/
 vs2017/.vs/
 .vscode/.BROWSE.VC.DB-shm
 .vscode/.BROWSE.VC.DB-wal
+.vscode/ipch/
 bin/cmapdump.exe
 bin/pigz.exe
-bin/premake5.exe
 drmemlogs/
 src/utils/BuildConfig.h
 build-log.txt
@@ -34,3 +36,5 @@ analyze-output.txt
 analyze-errors.html
 CoverageReport*
 LastCoverageResults.log
+out/
+linux_dbg64/

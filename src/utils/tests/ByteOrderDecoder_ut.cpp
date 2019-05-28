@@ -1,30 +1,23 @@
-/* Copyright 2015 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2018 the SumatraPDF project authors (see AUTHORS file).
    License: Simplified BSD (see COPYING.BSD) */
 
-#include "BaseUtil.h"
-#include "ByteOrderDecoder.h"
+#include "utils/BaseUtil.h"
+#include "utils/ByteOrderDecoder.h"
 
 // must be last due to assert() over-write
-#include "UtAssert.h"
+#include "utils/UtAssert.h"
 
 #define ABC "abc"
-void ByteOrderTests()
-{
-    unsigned char d1[] = {
-        0x00, 0x01,
-        0x00, // to skip
-        0x01, 0x00,
-        0xff, 0xfe,
-        0x00, 0x00, // to skip
-        0x00, 0x00, 0x00, 0x01,
-        0x01, 0x00, 0x00, 0x00,
-        0xff, 0xff, 0xff, 0xfe,
-        0x02, 0x00,
-        'a', 'b', 'c'
-    };
+void ByteOrderTests() {
+    unsigned char d1[] = {0x00, 0x01,
+                          0x00,                               // to skip
+                          0x01, 0x00, 0xff, 0xfe, 0x00, 0x00, // to skip
+                          0x00, 0x00, 0x00, 0x01, 0x01, 0x00, 0x00, 0x00, 0xff,
+                          0xff, 0xff, 0xfe, 0x02, 0x00, 'a',  'b',  'c'};
 
     {
-        uint16 vu16; uint32 vu32;
+        uint16_t vu16;
+        uint32_t vu32;
         char b[3];
         ByteOrderDecoder d(d1, sizeof(d1), ByteOrderDecoder::LittleEndian);
         utassert(0 == d.Offset());
@@ -56,9 +49,8 @@ void ByteOrderTests()
         utassert(21 == d.Offset());
         utassert(vu32 == 0xfeffffff);
 
-        d.ChangeOrder(ByteOrderDecoder::BigEndian);
         vu16 = d.UInt16();
-        utassert(vu16 == 0x200);
+        utassert(vu16 == 0x02);
         utassert(23 == d.Offset());
 
         d.Bytes(b, 3);
@@ -67,7 +59,8 @@ void ByteOrderTests()
     }
 
     {
-        uint16 vu16; uint32 vu32;
+        uint16_t vu16;
+        uint32_t vu32;
         char b[3];
         ByteOrderDecoder d(d1, sizeof(d1), ByteOrderDecoder::BigEndian);
         vu16 = d.UInt16();
@@ -86,16 +79,16 @@ void ByteOrderTests()
         vu32 = d.UInt32();
         utassert(vu32 == 0xfffffffe);
 
-        d.ChangeOrder(ByteOrderDecoder::LittleEndian);
         vu16 = d.UInt16();
-        utassert(vu16 == 2);
+        utassert(vu16 == 0x200);
         d.Bytes(b, 3);
         utassert(memeq(ABC, b, 3));
         utassert(26 == d.Offset());
     }
 
     {
-        int16 v16; int32 v32;
+        int16_t v16;
+        int32_t v32;
         char b[3];
         ByteOrderDecoder d(d1, sizeof(d1), ByteOrderDecoder::LittleEndian);
         v16 = d.Int16();
@@ -114,16 +107,16 @@ void ByteOrderTests()
         v32 = d.Int32();
         utassert(v32 == -16777217);
 
-        d.ChangeOrder(ByteOrderDecoder::BigEndian);
         v16 = d.Int16();
-        utassert(v16 == 0x200);
+        utassert(v16 == 0x2);
         d.Bytes(b, 3);
         utassert(memeq(ABC, b, 3));
         utassert(26 == d.Offset());
     }
 
     {
-        int16 v16; int32 v32;
+        int16_t v16;
+        int32_t v32;
         char b[3];
         ByteOrderDecoder d(d1, sizeof(d1), ByteOrderDecoder::BigEndian);
         v16 = d.Int16();
@@ -142,9 +135,8 @@ void ByteOrderTests()
         v32 = d.Int32();
         utassert(v32 == -2);
 
-        d.ChangeOrder(ByteOrderDecoder::LittleEndian);
         v16 = d.Int16();
-        utassert(v16 == 2);
+        utassert(v16 == 0x200);
         d.Bytes(b, 3);
         utassert(memeq(ABC, b, 3));
         utassert(26 == d.Offset());

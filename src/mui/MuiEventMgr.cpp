@@ -1,28 +1,28 @@
-/* Copyright 2015 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2018 the SumatraPDF project authors (see AUTHORS file).
    License: Simplified BSD (see COPYING.BSD) */
 
-#include "BaseUtil.h"
-#include "BitManip.h"
-#include "Timer.h"
-#include "HtmlParserLookup.h"
+#include "utils/BaseUtil.h"
+#include "utils/BitManip.h"
+#include "utils/Timer.h"
+#include "utils/HtmlParserLookup.h"
 #include "Mui.h"
-#include "FrameRateWnd.h"
-#include "DebugLog.h"
+#include "wingui/FrameRateWnd.h"
+#include "utils/DebugLog.h"
 
 namespace mui {
 
-EventMgr::EventMgr(HwndWrapper *wndRoot) : wndRoot(wndRoot), currOver(nullptr), inSizeMove(false) {
+EventMgr::EventMgr(HwndWrapper* wndRoot) : wndRoot(wndRoot), currOver(nullptr), inSizeMove(false) {
     CrashIf(!wndRoot);
     // CrashIf(wndRoot->hwnd);
 }
 
 EventMgr::~EventMgr() {
     // unsubscribe event handlers for all controls
-    for (EventHandler &h : eventHandlers) {
+    for (EventHandler& h : eventHandlers) {
         delete h.events;
     }
-    for (NamedEventHandler &nh : namedEventHandlers) {
-        free((void *)nh.name);
+    for (const NamedEventHandler& nh : namedEventHandlers) {
+        str::Free(nh.name);
         delete nh.namedEvents;
     }
 }
@@ -47,11 +47,11 @@ void EventMgr::SetMaxSize(Size s) {
     maxSize = s;
 }
 
-void EventMgr::RemoveEventsForControl(Control *c) {
-    for (size_t i = 0; i < eventHandlers.Count(); i++) {
-        EventHandler h = eventHandlers.At(i);
+void EventMgr::RemoveEventsForControl(Control* c) {
+    for (size_t i = 0; i < eventHandlers.size(); i++) {
+        EventHandler h = eventHandlers.at(i);
         if (h.ctrlSource == c) {
-            ControlEvents *events = eventHandlers.At(i).events;
+            ControlEvents* events = eventHandlers.at(i).events;
             eventHandlers.RemoveAtFast(i);
             delete events;
             return;
@@ -59,33 +59,33 @@ void EventMgr::RemoveEventsForControl(Control *c) {
     }
 }
 
-ControlEvents *EventMgr::EventsForControl(Control *c) {
-    for (EventHandler &h : eventHandlers) {
+ControlEvents* EventMgr::EventsForControl(Control* c) {
+    for (EventHandler& h : eventHandlers) {
         if (h.ctrlSource == c)
             return h.events;
     }
-    ControlEvents *events = new ControlEvents();
-    EventHandler eh = { c, events };
+    ControlEvents* events = new ControlEvents();
+    EventHandler eh = {c, events};
     eventHandlers.Append(eh);
     return events;
 }
 
-NamedEvents *EventMgr::EventsForName(const char *name) {
-    for (NamedEventHandler &h : namedEventHandlers) {
+NamedEvents* EventMgr::EventsForName(const char* name) {
+    for (NamedEventHandler& h : namedEventHandlers) {
         if (str::EqI(h.name, name))
             return h.namedEvents;
     }
-    NamedEvents *namedEvents = new NamedEvents();
-    NamedEventHandler eh = { str::Dup(name), namedEvents };
+    NamedEvents* namedEvents = new NamedEvents();
+    NamedEventHandler eh = {str::Dup(name), namedEvents};
     namedEventHandlers.Append(eh);
     return namedEvents;
 }
 
-void EventMgr::NotifyNamedEventClicked(Control *c, int x, int y) {
-    const char *name = c->namedEventClick;
+void EventMgr::NotifyNamedEventClicked(Control* c, int x, int y) {
+    const char* name = c->namedEventClick;
     if (!name)
         return;
-    for (NamedEventHandler &h : namedEventHandlers) {
+    for (NamedEventHandler& h : namedEventHandlers) {
         if (str::EqI(h.name, name)) {
             h.namedEvents->Clicked(c, x, y);
             return;
@@ -93,8 +93,8 @@ void EventMgr::NotifyNamedEventClicked(Control *c, int x, int y) {
     }
 }
 
-void EventMgr::NotifyClicked(Control *c, int x, int y) {
-    for (EventHandler &h : eventHandlers) {
+void EventMgr::NotifyClicked(Control* c, int x, int y) {
+    for (EventHandler& h : eventHandlers) {
         if (h.ctrlSource == c) {
             h.events->Clicked(c, x, y);
             return;
@@ -102,8 +102,8 @@ void EventMgr::NotifyClicked(Control *c, int x, int y) {
     }
 }
 
-void EventMgr::NotifySizeChanged(Control *c, int dx, int dy) {
-    for (EventHandler &h : eventHandlers) {
+void EventMgr::NotifySizeChanged(Control* c, int dx, int dy) {
+    for (EventHandler& h : eventHandlers) {
         if (h.ctrlSource == c && h.events->SizeChanged) {
             h.events->SizeChanged(c, dx, dy);
         }
@@ -112,13 +112,13 @@ void EventMgr::NotifySizeChanged(Control *c, int dx, int dy) {
 
 // TODO: optimize by getting both mouse over and mouse move windows in one call
 // x, y is a position in the root window
-LRESULT EventMgr::OnMouseMove(WPARAM keys, int x, int y, bool &wasHandled) {
+LRESULT EventMgr::OnMouseMove(WPARAM keys, int x, int y, bool& wasHandled) {
     UNUSED(keys);
     UNUSED(wasHandled);
     Vec<CtrlAndOffset> windows;
-    Control *c;
+    Control* c;
 
-    uint16 wantedInputMask = bit::FromBit<uint16>(Control::WantsMouseOverBit);
+    uint16_t wantedInputMask = bit::FromBit<uint16_t>(Control::WantsMouseOverBit);
     size_t count = CollectWindowsAt(wndRoot, x, y, wantedInputMask, &windows);
     if (0 == count) {
         if (currOver) {
@@ -140,7 +140,7 @@ LRESULT EventMgr::OnMouseMove(WPARAM keys, int x, int y, bool &wasHandled) {
         }
     }
 
-    wantedInputMask = bit::FromBit<uint16>(Control::WantsMouseMoveBit);
+    wantedInputMask = bit::FromBit<uint16_t>(Control::WantsMouseMoveBit);
     count = CollectWindowsAt(wndRoot, x, y, wantedInputMask, &windows);
     if (0 == count)
         return 0;
@@ -153,30 +153,30 @@ LRESULT EventMgr::OnMouseMove(WPARAM keys, int x, int y, bool &wasHandled) {
 // TODO: quite possibly the real logic for generating "click" events is
 // more complicated
 // (x, y) is in the coordinates of the root window
-LRESULT EventMgr::OnLButtonUp(WPARAM keys, int x, int y, bool &wasHandled) {
+LRESULT EventMgr::OnLButtonUp(WPARAM keys, int x, int y, bool& wasHandled) {
     UNUSED(keys);
     UNUSED(wasHandled);
     Vec<CtrlAndOffset> controls;
-    uint16 wantedInputMask = bit::FromBit<uint16>(Control::WantsMouseClickBit);
+    uint16_t wantedInputMask = bit::FromBit<uint16_t>(Control::WantsMouseClickBit);
     size_t count = CollectWindowsAt(wndRoot, x, y, wantedInputMask, &controls);
     if (0 == count)
         return 0;
     // TODO: should this take z-order into account?
-    Control *c = controls.Last().c;
+    Control* c = controls.Last().c;
     c->MapRootToMyPos(x, y);
     NotifyClicked(c, x, y);
     NotifyNamedEventClicked(c, x, y);
     return 0;
 }
 
-static void SetIfNotZero(LONG &l, int i, bool &didSet) {
+static void SetIfNotZero(LONG& l, int i, bool& didSet) {
     if (i != 0) {
         l = i;
         didSet = true;
     }
 }
 
-LRESULT EventMgr::OnGetMinMaxInfo(MINMAXINFO *info, bool &wasHandled) {
+LRESULT EventMgr::OnGetMinMaxInfo(MINMAXINFO* info, bool& wasHandled) {
     SetIfNotZero(info->ptMinTrackSize.x, minSize.Width, wasHandled);
     SetIfNotZero(info->ptMinTrackSize.y, minSize.Height, wasHandled);
     SetIfNotZero(info->ptMaxTrackSize.x, maxSize.Width, wasHandled);
@@ -184,7 +184,7 @@ LRESULT EventMgr::OnGetMinMaxInfo(MINMAXINFO *info, bool &wasHandled) {
     return 0;
 }
 
-LRESULT EventMgr::OnSetCursor(int x, int y, bool &wasHandled) {
+LRESULT EventMgr::OnSetCursor(int x, int y, bool& wasHandled) {
     UNUSED(x);
     UNUSED(y);
     if (currOver && currOver->hCursor) {
@@ -194,7 +194,7 @@ LRESULT EventMgr::OnSetCursor(int x, int y, bool &wasHandled) {
     return TRUE;
 }
 
-LRESULT EventMgr::OnMessage(UINT msg, WPARAM wParam, LPARAM lParam, bool &wasHandled) {
+LRESULT EventMgr::OnMessage(UINT msg, WPARAM wParam, LPARAM lParam, bool& wasHandled) {
     wasHandled = false;
 
     if (WM_ENTERSIZEMOVE == msg) {
@@ -234,7 +234,7 @@ LRESULT EventMgr::OnMessage(UINT msg, WPARAM wParam, LPARAM lParam, bool &wasHan
     }
 
     if (WM_GETMINMAXINFO == msg) {
-        return OnGetMinMaxInfo((MINMAXINFO *)lParam, wasHandled);
+        return OnGetMinMaxInfo((MINMAXINFO*)lParam, wasHandled);
     }
 
     if (WM_PAINT == msg) {
@@ -245,4 +245,4 @@ LRESULT EventMgr::OnMessage(UINT msg, WPARAM wParam, LPARAM lParam, bool &wasHan
 
     return 0;
 }
-}
+} // namespace mui

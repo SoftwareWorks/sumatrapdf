@@ -9,7 +9,10 @@
     </Filter>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="..\src\utils\ArchUtil.h">
+    <ClInclude Include="..\src\utils\ApiHook.h">
+      <Filter>utils</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\utils\Archive.h">
       <Filter>utils</Filter>
     </ClInclude>
     <ClInclude Include="..\src\utils\BaseUtil.h">
@@ -22,6 +25,9 @@
       <Filter>utils</Filter>
     </ClInclude>
     <ClInclude Include="..\src\utils\ByteOrderDecoder.h">
+      <Filter>utils</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\utils\ByteWriter.h">
       <Filter>utils</Filter>
     </ClInclude>
     <ClInclude Include="..\src\utils\CmdLineParser.h">
@@ -46,9 +52,6 @@
       <Filter>utils</Filter>
     </ClInclude>
     <ClInclude Include="..\src\utils\Dpi.h">
-      <Filter>utils</Filter>
-    </ClInclude>
-    <ClInclude Include="..\src\utils\FileTransactions.h">
       <Filter>utils</Filter>
     </ClInclude>
     <ClInclude Include="..\src\utils\FileUtil.h">
@@ -82,6 +85,9 @@
       <Filter>utils</Filter>
     </ClInclude>
     <ClInclude Include="..\src\utils\LzmaSimpleArchive.h">
+      <Filter>utils</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\utils\PEB.h">
       <Filter>utils</Filter>
     </ClInclude>
     <ClInclude Include="..\src\utils\SerializeTxt.h">
@@ -144,12 +150,18 @@
     <ClInclude Include="..\src\wingui\SplitterWnd.h">
       <Filter>wingui</Filter>
     </ClInclude>
+    <ClInclude Include="..\src\wingui\TreeCtrl.h">
+      <Filter>wingui</Filter>
+    </ClInclude>
     <ClInclude Include="..\src\wingui\Win32Window.h">
       <Filter>wingui</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="..\src\utils\ArchUtil.cpp">
+    <ClCompile Include="..\src\utils\ApiHook.cpp">
+      <Filter>utils</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\utils\Archive.cpp">
       <Filter>utils</Filter>
     </ClCompile>
     <ClCompile Include="..\src\utils\BaseUtil.cpp">
@@ -183,9 +195,6 @@
       <Filter>utils</Filter>
     </ClCompile>
     <ClCompile Include="..\src\utils\Dpi.cpp">
-      <Filter>utils</Filter>
-    </ClCompile>
-    <ClCompile Include="..\src\utils\FileTransactions.cpp">
       <Filter>utils</Filter>
     </ClCompile>
     <ClCompile Include="..\src\utils\FileUtil.cpp">
@@ -239,6 +248,9 @@
     <ClCompile Include="..\src\utils\StrUtil.cpp">
       <Filter>utils</Filter>
     </ClCompile>
+    <ClCompile Include="..\src\utils\StrUtil_win.cpp">
+      <Filter>utils</Filter>
+    </ClCompile>
     <ClCompile Include="..\src\utils\TgaReader.cpp">
       <Filter>utils</Filter>
     </ClCompile>
@@ -279,6 +291,9 @@
       <Filter>wingui</Filter>
     </ClCompile>
     <ClCompile Include="..\src\wingui\SplitterWnd.cpp">
+      <Filter>wingui</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\wingui\TreeCtrl.cpp">
       <Filter>wingui</Filter>
     </ClCompile>
     <ClCompile Include="..\src\wingui\Win32Window.cpp">
