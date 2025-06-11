@@ -1,32 +1,30 @@
-/* Copyright 2018 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2022 the SumatraPDF project authors (see AUTHORS file).
    License: GPLv3 */
 
-typedef struct fz_context_s fz_context;
-typedef struct fz_image_s fz_image;
-typedef struct pdf_document_s pdf_document;
+struct fz_context;
+struct fz_image;
+struct pdf_document;
 
 class PdfCreator {
-    fz_context* ctx;
-    pdf_document* doc;
-
   public:
+    fz_context* ctx = nullptr;
+    pdf_document* doc = nullptr;
+
     PdfCreator();
     ~PdfCreator();
 
-    bool AddImagePage(fz_image* image, float imgDpi = 0);
-    bool AddImagePage(HBITMAP hbmp, SizeI size, float imgDpi = 0);
-    bool AddImagePage(Gdiplus::Bitmap* bmp, float imgDpi = 0);
-    // recommended for JPEG and JP2 images (don't need to be recompressed)
-    bool AddImagePage(const char* data, size_t len, float imgDpi = 0);
+    bool AddPageFromFzImage(fz_image* image, float imgDpi = 0) const;
+    bool AddPageFromGdiplusBitmap(Gdiplus::Bitmap* bmp, float imgDpi = 0);
+    bool AddPageFromImageData(const ByteSlice& data, float imgDpi = 0) const;
 
-    bool SetProperty(DocumentProperty prop, const WCHAR* value);
-    bool CopyProperties(BaseEngine* engine);
+    bool SetProperty(const char* prop, const char* value) const;
+    bool CopyProperties(EngineBase* engine) const;
 
-    bool SaveToFile(const char* filePath);
+    bool SaveToFile(const char* filePath) const;
 
     // this name is included in all saved PDF files
-    static void SetProducerName(const WCHAR* name);
+    static void SetProducerName(const char* name);
 
     // creates a simple PDF with all pages rendered as a single image
-    static bool RenderToFile(const char* pdfFileName, BaseEngine* engine, int dpi = 150);
+    static bool RenderToFile(const char* pdfFileName, EngineBase* engine, int dpi = 150);
 };

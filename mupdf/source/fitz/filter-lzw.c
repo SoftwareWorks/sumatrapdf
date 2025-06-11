@@ -1,37 +1,60 @@
+// Copyright (C) 2004-2022 Artifex Software, Inc.
+//
+// This file is part of MuPDF.
+//
+// MuPDF is free software: you can redistribute it and/or modify it under the
+// terms of the GNU Affero General Public License as published by the Free
+// Software Foundation, either version 3 of the License, or (at your option)
+// any later version.
+//
+// MuPDF is distributed in the hope that it will be useful, but WITHOUT ANY
+// WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+// FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+// details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with MuPDF. If not, see <https://www.gnu.org/licenses/agpl-3.0.en.html>
+//
+// Alternative licensing terms are available from the licensor.
+// For commercial licensing, see <https://www.artifex.com/> or contact
+// Artifex Software, Inc., 39 Mesa Street, Suite 108A, San Francisco,
+// CA 94129, USA, for further information.
+
 #include "mupdf/fitz.h"
+
+#include <assert.h>
 
 /* TODO: error checking */
 
+#define LZW_CLEAR(lzw)	(1 << ((lzw)->min_bits - 1))
+#define LZW_EOD(lzw)	(LZW_CLEAR(lzw) + 1)
+#define LZW_FIRST(lzw)	(LZW_CLEAR(lzw) + 2)
+
 enum
 {
-	MIN_BITS = 9,
 	MAX_BITS = 12,
 	NUM_CODES = (1 << MAX_BITS),
-	LZW_CLEAR = 256,
-	LZW_EOD = 257,
-	LZW_FIRST = 258,
 	MAX_LENGTH = 4097
 };
 
-typedef struct lzw_code_s lzw_code;
-
-struct lzw_code_s
+typedef struct
 {
 	int prev;			/* prev code (in string) */
 	unsigned short length;		/* string len, including this token */
 	unsigned char value;		/* data value */
 	unsigned char first_char;	/* first token of string */
-};
+} lzw_code;
 
-typedef struct fz_lzwd_s fz_lzwd;
-
-struct fz_lzwd_s
+typedef struct
 {
 	fz_stream *chain;
 	int eod;
 
 	int early_change;
 
+	int reverse_bits;
+	int old_tiff;
+	int min_bits;			/* minimum num bits/code */
 	int code_bits;			/* num bits/code */
 	int code;			/* current code */
 	int old_code;			/* previously recognized code */
@@ -43,10 +66,10 @@ struct fz_lzwd_s
 	unsigned char *rp, *wp;
 
 	unsigned char buffer[4096];
-};
+} fz_lzwd;
 
 static int
-next_lzwd(fz_stream *stm, int len)
+next_lzwd(fz_context *ctx, fz_stream *stm, size_t len)
 {
 	fz_lzwd *lzw = stm->state;
 	lzw_code *table = lzw->table;
@@ -73,30 +96,36 @@ next_lzwd(fz_stream *stm, int len)
 		if (lzw->eod)
 			return EOF;
 
-		code = fz_read_bits(lzw->chain, code_bits);
+		if (fz_is_eof_bits(ctx, lzw->chain))
+		{
+			fz_warn(ctx, "premature end in lzw decode");
+			lzw->eod = 1;
+			break;
+		}
 
-		if (fz_is_eof_bits(lzw->chain))
+		if (lzw->reverse_bits)
+			code = fz_read_rbits(ctx, lzw->chain, code_bits);
+		else
+			code = fz_read_bits(ctx, lzw->chain, code_bits);
+
+		if (code == LZW_EOD(lzw))
 		{
 			lzw->eod = 1;
 			break;
 		}
 
-		if (code == LZW_EOD)
+		/* Old Tiffs are allowed to NOT send the clear code, and to
+		 * overrun at the end. */
+		if (!lzw->old_tiff && next_code > NUM_CODES && code != LZW_CLEAR(lzw))
 		{
-			lzw->eod = 1;
-			break;
+			fz_warn(ctx, "missing clear code in lzw decode");
+			code = LZW_CLEAR(lzw);
 		}
 
-		if (next_code > NUM_CODES && code != LZW_CLEAR)
+		if (code == LZW_CLEAR(lzw))
 		{
-			fz_warn(stm->ctx, "missing clear code in lzw decode");
-			code = LZW_CLEAR;
-		}
-
-		if (code == LZW_CLEAR)
-		{
-			code_bits = MIN_BITS;
-			next_code = LZW_FIRST;
+			code_bits = lzw->min_bits;
+			next_code = LZW_FIRST(lzw);
 			old_code = -1;
 			continue;
 		}
@@ -106,17 +135,17 @@ next_lzwd(fz_stream *stm, int len)
 		{
 			old_code = code;
 		}
-		else if (next_code == NUM_CODES)
+		else if (!lzw->old_tiff && next_code == NUM_CODES)
 		{
-			/* TODO: Ghostscript checks for a following LZW_CLEAR before tolerating */
-			fz_warn(stm->ctx, "tolerating a single out of range code in lzw decode");
+			/* TODO: Ghostscript checks for a following clear code before tolerating */
+			fz_warn(ctx, "tolerating a single out of range code in lzw decode");
 			next_code++;
 		}
-		else if (code > next_code || next_code >= NUM_CODES)
+		else if (code > next_code || (!lzw->old_tiff && next_code >= NUM_CODES))
 		{
-			fz_warn(stm->ctx, "out of range code encountered in lzw decode");
+			fz_throw(ctx, FZ_ERROR_FORMAT, "out of range code encountered in lzw decode");
 		}
-		else
+		else if (next_code < NUM_CODES)
 		{
 			/* add new entry to the code table */
 			table[next_code].prev = old_code;
@@ -127,7 +156,7 @@ next_lzwd(fz_stream *stm, int len)
 			else if (code == next_code)
 				table[next_code].value = table[next_code].first_char;
 			else
-				fz_warn(stm->ctx, "out of range code encountered in lzw decode");
+				fz_throw(ctx, FZ_ERROR_FORMAT, "out of range code encountered in lzw decode");
 
 			next_code ++;
 
@@ -142,7 +171,7 @@ next_lzwd(fz_stream *stm, int len)
 		}
 
 		/* code maps to a string, copy to output (in reverse...) */
-		if (code > 255)
+		if (code >= LZW_CLEAR(lzw))
 		{
 			codelen = table[code].length;
 			lzw->rp = lzw->bp;
@@ -188,64 +217,53 @@ static void
 close_lzwd(fz_context *ctx, void *state_)
 {
 	fz_lzwd *lzw = (fz_lzwd *)state_;
-	fz_sync_bits(lzw->chain);
-	fz_close(lzw->chain);
+	fz_sync_bits(ctx, lzw->chain);
+	fz_drop_stream(ctx, lzw->chain);
 	fz_free(ctx, lzw);
 }
 
-static fz_stream *
-rebind_lzwd(fz_stream *s)
-{
-	fz_lzwd *state = s->state;
-	return state->chain;
-}
-
-/* Default: early_change = 1 */
 fz_stream *
-fz_open_lzwd(fz_stream *chain, int early_change)
+fz_open_lzwd(fz_context *ctx, fz_stream *chain, int early_change, int min_bits, int reverse_bits, int old_tiff)
 {
-	fz_context *ctx = chain->ctx;
-	fz_lzwd *lzw = NULL;
+	fz_lzwd *lzw;
 	int i;
 
-	fz_var(lzw);
-
-	fz_try(ctx)
+	if (min_bits > MAX_BITS)
 	{
-		lzw = fz_malloc_struct(ctx, fz_lzwd);
-		lzw->chain = chain;
-		lzw->eod = 0;
-		lzw->early_change = early_change;
-
-		for (i = 0; i < 256; i++)
-		{
-			lzw->table[i].value = i;
-			lzw->table[i].first_char = i;
-			lzw->table[i].length = 1;
-			lzw->table[i].prev = -1;
-		}
-
-		for (i = 256; i < NUM_CODES; i++)
-		{
-			lzw->table[i].value = 0;
-			lzw->table[i].first_char = 0;
-			lzw->table[i].length = 0;
-			lzw->table[i].prev = -1;
-		}
-
-		lzw->code_bits = MIN_BITS;
-		lzw->code = -1;
-		lzw->next_code = LZW_FIRST;
-		lzw->old_code = -1;
-		lzw->rp = lzw->bp;
-		lzw->wp = lzw->bp;
-	}
-	fz_catch(ctx)
-	{
-		fz_free(ctx, lzw);
-		fz_close(chain);
-		fz_rethrow(ctx);
+		fz_warn(ctx, "out of range initial lzw code size");
+		min_bits = MAX_BITS;
 	}
 
-	return fz_new_stream(ctx, lzw, next_lzwd, close_lzwd, rebind_lzwd);
+	lzw = fz_malloc_struct(ctx, fz_lzwd);
+	lzw->eod = 0;
+	lzw->early_change = early_change;
+	lzw->reverse_bits = reverse_bits;
+	lzw->old_tiff = old_tiff;
+	lzw->min_bits = min_bits;
+	lzw->code_bits = lzw->min_bits;
+	lzw->code = -1;
+	lzw->next_code = LZW_FIRST(lzw);
+	lzw->old_code = -1;
+	lzw->rp = lzw->bp;
+	lzw->wp = lzw->bp;
+
+	for (i = 0; i < LZW_CLEAR(lzw); i++)
+	{
+		lzw->table[i].value = i;
+		lzw->table[i].first_char = i;
+		lzw->table[i].length = 1;
+		lzw->table[i].prev = -1;
+	}
+
+	for (i = LZW_CLEAR(lzw); i < NUM_CODES; i++)
+	{
+		lzw->table[i].value = 0;
+		lzw->table[i].first_char = 0;
+		lzw->table[i].length = 0;
+		lzw->table[i].prev = -1;
+	}
+
+	lzw->chain = fz_keep_stream(ctx, chain);
+
+	return fz_new_stream(ctx, lzw, next_lzwd, close_lzwd);
 }

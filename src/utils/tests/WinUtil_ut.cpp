@@ -1,4 +1,4 @@
-/* Copyright 2018 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2022 the SumatraPDF project authors (see AUTHORS file).
    License: Simplified BSD (see COPYING.BSD) */
 
 #include "utils/BaseUtil.h"
@@ -12,28 +12,34 @@ void WinUtilTest() {
     ScopedCom comScope;
 
     {
-        char* string = "abcde";
-        size_t stringSize = 5, len;
-        ScopedComPtr<IStream> stream(CreateStreamFromData(string, stringSize));
+        const char* string = "abcde";
+        size_t stringSize = str::Len(string);
+        auto strm = CreateStreamFromData({(u8*)string, stringSize});
+        ScopedComPtr<IStream> stream(strm);
         utassert(stream);
-        char* data = (char*)GetDataFromStream(stream, &len);
-        utassert(data && stringSize == len && str::Eq(data, string));
-        free(data);
+        ByteSlice data = GetDataFromStream(stream, nullptr);
+        utassert(data.Get());
+        utassert(stringSize == data.size());
+        const char* s = data;
+        utassert(str::Eq(s, string));
+        data.Free();
     }
 
     {
-        WCHAR* string = L"abcde";
-        size_t stringSize = 10, len;
-        ScopedComPtr<IStream> stream(CreateStreamFromData(string, stringSize));
+        const WCHAR* string = L"abcde";
+        size_t stringSize = str::Len(string) * sizeof(WCHAR);
+        auto strm = CreateStreamFromData({(u8*)string, stringSize});
+        ScopedComPtr<IStream> stream(strm);
         utassert(stream);
-        WCHAR* data = (WCHAR*)GetDataFromStream(stream, &len);
-        utassert(data && stringSize == len && str::Eq(data, string));
-        free(data);
+        ByteSlice dataTmp = GetDataFromStream(stream, nullptr);
+        WCHAR* data = (WCHAR*)dataTmp.Get();
+        utassert(data && stringSize == dataTmp.size() && str::Eq(data, string));
+        dataTmp.Free();
     }
 
     {
-        RectI oneScreen = GetFullscreenRect(nullptr);
-        RectI allScreens = GetVirtualScreenRect();
+        Rect oneScreen = GetFullscreenRect(nullptr);
+        Rect allScreens = GetVirtualScreenRect();
         utassert(allScreens.Intersect(oneScreen) == oneScreen);
     }
 

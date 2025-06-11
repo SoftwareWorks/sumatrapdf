@@ -1,86 +1,17 @@
-/* Copyright 2018 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2022 the SumatraPDF project authors (see AUTHORS file).
    License: Simplified BSD (see COPYING.BSD) */
 
 #include "utils/BaseUtil.h"
 #define __STDC_FORMAT_MACROS
 #include <inttypes.h>
+#include <utils/VecSegmented.h>
 
 // must be last due to assert() over-write
 #include "utils/UtAssert.h"
 
-static void WStrVecTest() {
-    WStrVec v;
-    v.Append(str::Dup(L"foo"));
-    v.Append(str::Dup(L"bar"));
-    WCHAR* s = v.Join();
-    utassert(v.size() == 2);
-    utassert(str::Eq(L"foobar", s));
-    free(s);
-
-    s = v.Join(L";");
-    utassert(v.size() == 2);
-    utassert(str::Eq(L"foo;bar", s));
-    free(s);
-
-    v.Append(str::Dup(L"glee"));
-    s = v.Join(L"_ _");
-    utassert(v.size() == 3);
-    utassert(str::Eq(L"foo_ _bar_ _glee", s));
-    free(s);
-
-    v.Sort();
-    s = v.Join();
-    utassert(str::Eq(L"barfooglee", s));
-    free(s);
-
-    {
-        WStrVec v2(v);
-        utassert(str::Eq(v2.at(1), L"foo"));
-        v2.Append(str::Dup(L"nobar"));
-        utassert(str::Eq(v2.at(3), L"nobar"));
-        v2 = v;
-        utassert(v2.size() == 3 && v2.at(0) != v.at(0));
-        utassert(str::Eq(v2.at(1), L"foo"));
-    }
-
-    {
-        WStrVec v2;
-        size_t count = v2.Split(L"a,b,,c,", L",");
-        utassert(count == 5 && v2.Find(L"c") == 3);
-        utassert(v2.Find(L"") == 2 && v2.Find(L"", 3) == 4 && v2.Find(L"", 5) == -1);
-        utassert(v2.Find(L"B") == -1 && v2.FindI(L"B") == 1);
-        AutoFreeW joined(v2.Join(L";"));
-        utassert(str::Eq(joined, L"a;b;;c;"));
-    }
-
-    {
-        WStrVec v2;
-        size_t count = v2.Split(L"a,b,,c,", L",", true);
-        utassert(count == 3 && v2.Find(L"c") == 2);
-        AutoFreeW joined(v2.Join(L";"));
-        utassert(str::Eq(joined, L"a;b;c"));
-        AutoFreeW last(v2.Pop());
-        utassert(v2.size() == 2 && str::Eq(last, L"c"));
-    }
-}
-
-static void StrListTest() {
-    WStrList l;
-    utassert(l.size() == 0);
-    l.Append(str::Dup(L"one"));
-    l.Append(str::Dup(L"two"));
-    l.Append(str::Dup(L"One"));
-    utassert(l.size() == 3);
-    utassert(str::Eq(l.at(0), L"one"));
-    utassert(str::EqI(l.at(2), L"one"));
-    utassert(l.Find(L"One") == 2);
-    utassert(l.FindI(L"One") == 0);
-    utassert(l.Find(L"Two") == -1);
-}
-
 static size_t VecTestAppendFmt() {
-    str::Str<char> v(256);
-    int64_t val = 1;
+    str::Str v(256);
+    i64 val = 1;
     for (int i = 0; i < 10000; i++) {
         v.AppendFmt("i%" PRId64 "e", val);
         val = (val * 3) / 2; // somewhat exponential growth
@@ -90,11 +21,33 @@ static size_t VecTestAppendFmt() {
     return l;
 }
 
+struct Num {
+    int n;
+    int n2;
+};
+
+static void VecSegmentedTest() {
+    VecSegmented<Num> vec;
+    int nTotal = 1033;
+    for (int i = 0; i < nTotal; i++) {
+        vec.Append(Num{i, i + 1});
+    }
+    utassert(vec.Size() == (size_t)nTotal);
+    int i = 0;
+    for (Num* n : vec) {
+        utassert(n->n == i);
+        utassert(n->n2 == i + 1);
+        ++i;
+    }
+}
+
 void VecTest() {
+    VecSegmentedTest();
+
     Vec<int> ints;
     utassert(ints.size() == 0);
     ints.Append(1);
-    ints.Push(2);
+    ints.Append(2);
     ints.InsertAt(0, -1);
     utassert(ints.size() == 3);
     utassert(ints.at(0) == -1 && ints.at(1) == 1 && ints.at(2) == 2);
@@ -102,7 +55,7 @@ void VecTest() {
     int last = ints.Pop();
     utassert(last == 2);
     utassert(ints.size() == 2);
-    ints.Push(3);
+    ints.Append(3);
     ints.RemoveAt(0);
     utassert(ints.size() == 2);
     utassert(ints.at(0) == 1 && ints.at(1) == 3);
@@ -110,7 +63,7 @@ void VecTest() {
     utassert(ints.size() == 0);
 
     for (int i = 0; i < 1000; i++) {
-        ints.Push(i);
+        ints.Append(i);
     }
     utassert(ints.size() == 1000 && ints.at(500) == 500);
     ints.Remove(500);
@@ -122,8 +75,6 @@ void VecTest() {
     for (int& value : ints) {
         utassert(0 <= value && value < 1000);
     }
-    utassert(ints.FindEl([](int& value) { return value == 999; }) == 999);
-    utassert(ints.FindEl([](int& value) { return value == 500; }) == 0);
 
     {
         Vec<int> ints2(ints);
@@ -137,7 +88,7 @@ void VecTest() {
 
     {
         char buf[2] = {'a', '\0'};
-        str::Str<char> v(0);
+        str::Str v(0, nullptr);
         for (int i = 0; i < 7; i++) {
             v.Append(buf, 1);
             buf[0] = buf[0] + 1;
@@ -151,7 +102,7 @@ void VecTest() {
     }
 
     {
-        str::Str<char> v(128);
+        str::Str v(128);
         v.Append("boo", 3);
         utassert(str::Eq("boo", v.LendData()));
         utassert(v.size() == 3);
@@ -161,7 +112,7 @@ void VecTest() {
         v.RemoveAt(2, 3);
         utassert(v.size() == 3);
         utassert(str::Eq("bop", v.LendData()));
-        v.Append('a');
+        v.AppendChar('a');
         utassert(v.size() == 4);
         utassert(str::Eq("bopa", v.LendData()));
         char* s = v.StealData();
@@ -171,14 +122,14 @@ void VecTest() {
     }
 
     {
-        str::Str<char> v(0);
+        str::Str v(0, nullptr);
         for (size_t i = 0; i < 32; i++) {
             utassert(v.size() == i * 6);
             v.Append("lambd", 5);
             if (i % 2 == 0)
-                v.Append('a');
+                v.AppendChar('a');
             else
-                v.Push('a');
+                v.AppendChar('a');
         }
 
         for (size_t i = 1; i <= 16; i++) {
@@ -197,7 +148,7 @@ void VecTest() {
 
         v.Append("lambda");
         utassert(str::Eq(v.LendData(), "lambda"));
-        char c = v.Pop();
+        char c = v.RemoveLast();
         utassert(c == 'a');
         utassert(str::Eq(v.LendData(), "lambd"));
     }
@@ -205,18 +156,18 @@ void VecTest() {
     VecTestAppendFmt();
 
     {
-        Vec<PointI*> v;
+        Vec<Point*> v;
         srand((unsigned int)time(nullptr));
         for (int i = 0; i < 128; i++) {
-            v.Append(new PointI(i, i));
+            v.Append(new Point(i, i));
             size_t pos = rand() % v.size();
-            v.InsertAt(pos, new PointI(i, i));
+            v.InsertAt(pos, new Point(i, i));
         }
         utassert(v.size() == 128 * 2);
 
         while (v.size() > 64) {
             size_t pos = rand() % v.size();
-            PointI* f = v.at(pos);
+            Point* f = v.at(pos);
             v.Remove(f);
             delete f;
         }
@@ -239,9 +190,17 @@ void VecTest() {
     {
         Vec<int> v;
         v.InsertAt(2, 2);
-        utassert(v.size() == 3 && v.at(0) == 0 && v.at(2) == 2);
+        auto size = v.size();
+        utassert(size == 3);
+        auto el0 = v.at(0);
+        utassert(el0 == 0);
+        auto el2 = v.at(2);
+        utassert(el2 == 2);
     }
 
-    WStrVecTest();
-    StrListTest();
+    {
+        str::Str v;
+        v.Append("foo");
+        utassert(v.size() == 3);
+    }
 }

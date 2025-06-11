@@ -1,40 +1,32 @@
-/* Copyright 2018 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2022 the SumatraPDF project authors (see AUTHORS file).
    License: GPLv3 */
 
 class HtmlPullParser;
 struct HtmlToken;
 
-struct ImageData2 {
-    ImageData base;
-    char* fileName; // path by which content refers to this image
-    size_t fileId;  // document specific id by whcih to find this image
+struct ImageData {
+    ByteSlice base;
+    // path by which content refers to this image
+    char* fileName = nullptr;
+    // document specific id by whcih to find this image
+    size_t fileId{0};
 };
 
 char* NormalizeURL(const char* url, const char* base);
 
-class PropertyMap {
-    AutoFree values[DocumentProperty::PdfVersion];
-
-    int Find(DocumentProperty prop) const;
-
-  public:
-    void Set(DocumentProperty prop, char* valueUtf8, bool replace = false);
-    WCHAR* Get(DocumentProperty prop) const;
-};
-
 /* ********** EPUB ********** */
 
 class EpubDoc {
-    Archive* zip = nullptr;
+    MultiFormatArchive* zip = nullptr;
     // zip and images are the only mutable members of EpubDoc after initialization;
-    // access to them must be serialized for multi-threaded users (such as EbookController)
+    // access to them must be serialized for multi-threaded users
     CRITICAL_SECTION zipAccess;
 
-    str::Str<char> htmlData;
-    Vec<ImageData2> images;
-    AutoFreeW tocPath;
-    AutoFreeW fileName;
-    PropertyMap props;
+    str::Str htmlData;
+    Vec<ImageData> images;
+    AutoFreeStr tocPath;
+    AutoFreeStr fileName;
+    Props props;
     bool isNcxToc = false;
     bool isRtlDoc = false;
 
@@ -44,24 +36,25 @@ class EpubDoc {
     bool ParseNcxToc(const char* data, size_t dataLen, const char* pagePath, EbookTocVisitor* visitor);
 
   public:
-    explicit EpubDoc(const WCHAR* fileName);
+    explicit EpubDoc(const char* fileName);
     explicit EpubDoc(IStream* stream);
     ~EpubDoc();
 
-    std::string_view GetHtmlData() const;
+    ByteSlice GetHtmlData() const;
 
-    ImageData* GetImageData(const char* id, const char* pagePath);
-    OwnedData GetFileData(const char* relPath, const char* pagePath);
+    ByteSlice* GetImageData(const char* fileName, const char* pagePath);
+    ByteSlice GetFileData(const char* relPath, const char* pagePath);
 
-    WCHAR* GetProperty(DocumentProperty prop) const;
-    const WCHAR* GetFileName() const;
+    TempStr GetPropertyTemp(const char* name) const;
+    const char* GetFileName() const;
     bool IsRTL() const;
 
     bool HasToc() const;
     bool ParseToc(EbookTocVisitor* visitor);
 
-    static bool IsSupportedFile(const WCHAR* fileName, bool sniff = false);
-    static EpubDoc* CreateFromFile(const WCHAR* fileName);
+    static bool IsSupportedFileType(Kind kind);
+
+    static EpubDoc* CreateFromFile(const char* path);
     static EpubDoc* CreateFromStream(IStream* stream);
 };
 
@@ -70,41 +63,39 @@ class EpubDoc {
 #define FB2_TOC_ENTRY_MARK "ToC!Entry!"
 
 class Fb2Doc {
-    AutoFreeW fileName;
-    IStream* stream;
+  public:
+    AutoFreeStr fileName;
+    IStream* stream = nullptr;
 
-    str::Str<char> xmlData;
-    Vec<ImageData2> images;
+    str::Str xmlData;
+    Vec<ImageData> images;
     AutoFree coverImage;
-    PropertyMap props;
-    bool isZipped;
-    bool hasToc;
+    Props props;
+    bool isZipped = false;
+    bool hasToc = false;
 
     bool Load();
     void ExtractImage(HtmlPullParser* parser, HtmlToken* tok);
 
-  public:
-    explicit Fb2Doc(const WCHAR* fileName);
+    explicit Fb2Doc(const char* fileName);
     explicit Fb2Doc(IStream* stream);
     ~Fb2Doc();
 
-    std::string_view Fb2Doc::GetXmlData() const;
-    // TODO: remove those
-    const char* GetXmlData(size_t* lenOut) const;
-    size_t GetXmlDataSize() const;
+    ByteSlice GetXmlData() const;
 
-    ImageData* GetImageData(const char* id);
-    ImageData* GetCoverImage();
+    ByteSlice* GetImageData(const char* fileName) const;
+    ByteSlice* GetCoverImage() const;
 
-    WCHAR* GetProperty(DocumentProperty prop) const;
-    const WCHAR* GetFileName() const;
+    TempStr GetPropertyTemp(const char* name) const;
+    const char* GetFileName() const;
     bool IsZipped() const;
 
     bool HasToc() const;
-    bool ParseToc(EbookTocVisitor* visitor);
+    bool ParseToc(EbookTocVisitor* visitor) const;
 
-    static bool IsSupportedFile(const WCHAR* fileName, bool sniff = false);
-    static Fb2Doc* CreateFromFile(const WCHAR* fileName);
+    static bool IsSupportedFileType(Kind kind);
+
+    static Fb2Doc* CreateFromFile(const char* path);
     static Fb2Doc* CreateFromStream(IStream* stream);
 };
 
@@ -113,77 +104,77 @@ class Fb2Doc {
 class PdbReader;
 
 class PalmDoc {
-    AutoFreeW fileName;
-    str::Str<char> htmlData;
-    WStrVec tocEntries;
+    AutoFreeStr fileName;
+    str::Str htmlData;
+    StrVec tocEntries;
 
     bool Load();
 
   public:
-    explicit PalmDoc(const WCHAR* fileName);
+    explicit PalmDoc(const char* path);
     ~PalmDoc();
 
-    std::string_view PalmDoc::GetHtmlData() const;
+    ByteSlice GetHtmlData() const;
 
-    WCHAR* GetProperty(DocumentProperty prop) const;
-    const WCHAR* GetFileName() const;
+    TempStr GetPropertyTemp(const char* name) const;
+    const char* GetFileName() const;
 
     bool HasToc() const;
     bool ParseToc(EbookTocVisitor* visitor);
 
-    static bool IsSupportedFile(const WCHAR* fileName, bool sniff = false);
-    static PalmDoc* CreateFromFile(const WCHAR* fileName);
+    static bool IsSupportedFileType(Kind kind);
+    static PalmDoc* CreateFromFile(const char* path);
 };
 
 /* ********** Plain HTML ********** */
 
 class HtmlDoc {
-    AutoFreeW fileName;
-    AutoFree htmlData;
-    AutoFree pagePath;
-    Vec<ImageData2> images;
-    PropertyMap props;
+    AutoFreeStr fileName;
+    ByteSlice htmlData;
+    AutoFreeStr pagePath;
+    Vec<ImageData> images;
+    Props props;
 
     bool Load();
-    char* LoadURL(const char* url, size_t* lenOut);
+    ByteSlice LoadURL(const char* url);
 
   public:
-    explicit HtmlDoc(const WCHAR* fileName);
+    explicit HtmlDoc(const char* path);
     ~HtmlDoc();
 
-    std::string_view HtmlDoc::GetHtmlData() const;
+    ByteSlice GetHtmlData();
 
-    ImageData* GetImageData(const char* id);
-    char* GetFileData(const char* relPath, size_t* lenOut);
+    ByteSlice* GetImageData(const char* fileName);
+    ByteSlice GetFileData(const char* relPath);
 
-    WCHAR* GetProperty(DocumentProperty prop) const;
-    const WCHAR* GetFileName() const;
+    TempStr GetPropertyTemp(const char* name) const;
+    const char* GetFileName() const;
 
-    static bool IsSupportedFile(const WCHAR* fileName, bool sniff = false);
-    static HtmlDoc* CreateFromFile(const WCHAR* fileName);
+    static bool IsSupportedFileType(Kind kind);
+    static HtmlDoc* CreateFromFile(const char* fileName);
 };
 
 /* ********** Plain Text (and RFCs and TCR) ********** */
 
 class TxtDoc {
-    AutoFreeW fileName;
-    str::Str<char> htmlData;
-    bool isRFC;
+    AutoFreeStr fileName;
+    str::Str htmlData;
+    bool isRFC = false;
 
     bool Load();
 
   public:
-    explicit TxtDoc(const WCHAR* fileName);
+    explicit TxtDoc(const char* fileName);
 
-    std::string_view TxtDoc::GetHtmlData() const;
+    ByteSlice GetHtmlData() const;
 
-    WCHAR* GetProperty(DocumentProperty prop) const;
-    const WCHAR* GetFileName() const;
+    TempStr GetPropertyTemp(const char* name) const;
+    const char* GetFileName() const;
 
     bool IsRFC() const;
     bool HasToc() const;
     bool ParseToc(EbookTocVisitor* visitor);
 
-    static bool IsSupportedFile(const WCHAR* fileName, bool sniff = false);
-    static TxtDoc* CreateFromFile(const WCHAR* fileName);
+    static bool IsSupportedFileType(Kind kind);
+    static TxtDoc* CreateFromFile(const char* fileName);
 };

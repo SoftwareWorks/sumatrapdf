@@ -1,4 +1,4 @@
-/* Copyright 2018 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2022 the SumatraPDF project authors (see AUTHORS file).
    License: Simplified BSD (see COPYING.BSD) */
 
 extern "C" {
@@ -8,22 +8,27 @@ typedef struct ar_archive_s ar_archive;
 
 class ZipCreator {
     ISequentialStream* stream;
-    str::Str<char> centraldir;
+    str::Str centraldir;
     size_t bytesWritten;
     size_t fileCount;
 
     bool WriteData(const void* data, size_t size);
-    bool AddFileData(const char* nameUtf8, const void* data, size_t size, uint32_t dosdate = 0);
+    bool AddFileData(const char* nameUtf8, const void* data, size_t size, u32 dosdate = 0);
 
   public:
-    ZipCreator(const WCHAR* zipFilePath);
-    ZipCreator(ISequentialStream* stream);
+    explicit ZipCreator(const char* zipFilePath);
+    explicit ZipCreator(ISequentialStream* stream);
     ~ZipCreator();
 
-    bool AddFile(const WCHAR* filePath, const WCHAR* nameInZip = nullptr);
-    bool AddFileFromDir(const WCHAR* filePath, const WCHAR* dir);
-    bool AddDir(const WCHAR* dirPath, bool recursive = false);
+    ZipCreator(ZipCreator const&) = delete;
+    ZipCreator& operator=(ZipCreator const&) = delete;
+
+    bool AddFile(const char* filePath, const char* nameInZip = nullptr);
+    bool AddFileFromDir(const char* filePath, const char* dir);
+    bool AddDir(const char* dirPath, bool recursive = false);
     bool Finish();
 };
 
-IStream* OpenDirAsZipStream(const WCHAR* dirPath, bool recursive = false);
+IStream* OpenDirAsZipStream(const char* dirPath, bool recursive = false);
+
+ByteSlice Ungzip(const ByteSlice&);

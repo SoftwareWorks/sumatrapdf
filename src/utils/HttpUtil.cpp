@@ -1,37 +1,63 @@
-/* Copyright 2018 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2022 the SumatraPDF project authors (see AUTHORS file).
    License: Simplified BSD (see COPYING.BSD) */
 
-#include "BaseUtil.h"
-#include "HttpUtil.h"
-#include "ThreadUtil.h"
-#include "FileUtil.h"
-#include "WinUtil.h"
+#include "utils/BaseUtil.h"
+#include "utils/ThreadUtil.h"
+#include "utils/FileUtil.h"
+#include "utils/ScopedWin.h"
+#include "utils/WinUtil.h"
+#include "utils/HttpUtil.h"
+
+#include "utils/Log.h"
 
 // per RFC 1945 10.15 and 3.7, a user agent product token shouldn't contain whitespace
-#define USER_AGENT L"BaseHTTP"
+constexpr const WCHAR* kUserAgent = L"SumatraPdfHTTP";
 
-bool HttpRspOk(const HttpRsp* rsp) {
-    return (rsp->error == ERROR_SUCCESS) && (rsp->httpStatusCode == 200);
+bool IsHttpRspOk(const HttpRsp* rsp) {
+    if (rsp->error != ERROR_SUCCESS) {
+        logf("HttpRspOk: rsp->error %d, should be %d (ERROR_SUCCESS)\n", (int)rsp->error, (int)ERROR_SUCCESS);
+        return false;
+    }
+    if (rsp->httpStatusCode >= 300) {
+        logf("HttpRspOk: rsp->httpStatusCode: %d\n", (int)rsp->httpStatusCode);
+        return false;
+    }
+    return true;
 }
 
 // returns false if failed to download or status code is not 200
 // for other scenarios, check HttpRsp
-bool HttpGet(const WCHAR* url, HttpRsp* rspOut) {
+bool HttpGet(const char* urlA, HttpRsp* rspOut) {
+    logf("HttpGet: url: '%s'\n", urlA);
     HINTERNET hReq = nullptr;
+    DWORD infoLevel;
     DWORD headerBuffSize = sizeof(DWORD);
-    DWORD flags = INTERNET_FLAG_NO_CACHE_WRITE | INTERNET_FLAG_RELOAD;
+    WCHAR* url = ToWStrTemp(urlA);
+    DWORD flags = INTERNET_FLAG_NO_CACHE_WRITE | INTERNET_FLAG_RELOAD | INTERNET_FLAG_IGNORE_CERT_CN_INVALID;
+
+    if (str::StartsWithI(urlA, "https")) {
+        flags |= INTERNET_FLAG_SECURE;
+    }
 
     rspOut->error = ERROR_SUCCESS;
-    HINTERNET hInet = InternetOpen(USER_AGENT, INTERNET_OPEN_TYPE_PRECONFIG, nullptr, nullptr, 0);
-    if (!hInet)
+    HINTERNET hInet = InternetOpenW(kUserAgent, INTERNET_OPEN_TYPE_PRECONFIG, nullptr, nullptr, 0);
+    if (!hInet) {
+        logf("HttpGet: InternetOpen failed\n");
+        LogLastError();
         goto Error;
+    }
 
-    hReq = InternetOpenUrl(hInet, url, nullptr, 0, flags, 0);
-    if (!hReq)
+    hReq = InternetOpenUrlW(hInet, url, nullptr, 0, flags, 0);
+    if (!hReq) {
+        logf("HttpGet: InternetOpenUrl failed\n");
+        LogLastError();
         goto Error;
+    }
 
-    if (!HttpQueryInfoW(hReq, HTTP_QUERY_STATUS_CODE | HTTP_QUERY_FLAG_NUMBER, &rspOut->httpStatusCode, &headerBuffSize,
-                        nullptr)) {
+    infoLevel = HTTP_QUERY_STATUS_CODE | HTTP_QUERY_FLAG_NUMBER;
+    if (!HttpQueryInfoW(hReq, infoLevel, &rspOut->httpStatusCode, &headerBuffSize, nullptr)) {
+        logf("HttpGet: HttpQueryInfoW failed\n");
+        LogLastError();
         goto Error;
     }
 
@@ -39,87 +65,124 @@ bool HttpGet(const WCHAR* url, HttpRsp* rspOut) {
         char buf[1024];
         DWORD dwRead = 0;
         if (!InternetReadFile(hReq, buf, sizeof(buf), &dwRead)) {
+            logf("HttpGet: InternetReadFile failed\n");
+            LogLastError();
             goto Error;
         }
         if (0 == dwRead) {
             break;
         }
-        bool ok = rspOut->data.AppendChecked(buf, dwRead);
-        if (!ok)
+        InterlockedIncrement(&gAllowAllocFailure);
+        bool ok = rspOut->data.Append(buf, dwRead);
+        InterlockedDecrement(&gAllowAllocFailure);
+        if (!ok) {
+            logf("HttpGet: data.Append failed\n");
             goto Error;
+        }
     }
 
 Exit:
-    if (hReq)
+    if (hReq) {
         InternetCloseHandle(hReq);
-    if (hInet)
+    }
+    if (hInet) {
         InternetCloseHandle(hInet);
-    return HttpRspOk(rspOut);
+    }
+    return IsHttpRspOk(rspOut);
 
 Error:
     rspOut->error = GetLastError();
-    if (0 == rspOut->error)
+    if (0 == rspOut->error) {
         rspOut->error = ERROR_GEN_FAILURE;
+    }
     goto Exit;
 }
 
+constexpr const int kBufSize = 256 * 1024;
+
 // Download content of a url to a file
-bool HttpGetToFile(const WCHAR* url, const WCHAR* destFilePath) {
+bool HttpGetToFile(const char* urlA, const char* destFilePath, const Func1<HttpProgress*>& cbProgress) {
+    logf("HttpGetToFile: url: '%s', file: '%s'\n", urlA, destFilePath);
     bool ok = false;
     HINTERNET hReq = nullptr, hInet = nullptr;
     DWORD dwRead = 0;
     DWORD headerBuffSize = sizeof(DWORD);
     DWORD statusCode = 0;
-    char buf[1024];
+    WCHAR* url = ToWStrTemp(urlA);
+    char* buf = nullptr;
 
-    HANDLE hf = CreateFile(destFilePath, GENERIC_WRITE, FILE_SHARE_READ, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL,
-                           nullptr);
-    if (INVALID_HANDLE_VALUE == hf)
-        goto Exit;
+    HttpProgress progress{0};
 
-    hInet = InternetOpen(USER_AGENT, INTERNET_OPEN_TYPE_PRECONFIG, nullptr, nullptr, 0);
-    if (!hInet)
+    WCHAR* pathW = ToWStrTemp(destFilePath);
+    HANDLE hf =
+        CreateFileW(pathW, GENERIC_WRITE, FILE_SHARE_READ, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (INVALID_HANDLE_VALUE == hf) {
+        logf("HttpGetToFile: CreateFileW('%s') failed\n", destFilePath);
+        LogLastError();
         goto Exit;
+    }
 
-    hReq = InternetOpenUrl(hInet, url, nullptr, 0, 0, 0);
-    if (!hReq)
+    buf = AllocArray<char>(kBufSize);
+    if (!buf) {
         goto Exit;
+    }
+
+    hInet = InternetOpenW(kUserAgent, INTERNET_OPEN_TYPE_PRECONFIG, nullptr, nullptr, 0);
+    if (!hInet) {
+        goto Exit;
+    }
+
+    hReq = InternetOpenUrlW(hInet, url, nullptr, 0, 0, 0);
+    if (!hReq) {
+        goto Exit;
+    }
 
     if (!HttpQueryInfoW(hReq, HTTP_QUERY_STATUS_CODE | HTTP_QUERY_FLAG_NUMBER, &statusCode, &headerBuffSize, nullptr)) {
         goto Exit;
     }
+
     if (statusCode != 200) {
         goto Exit;
     }
 
     for (;;) {
-        if (!InternetReadFile(hReq, buf, sizeof(buf), &dwRead))
+        if (!InternetReadFile(hReq, buf, kBufSize, &dwRead)) {
             goto Exit;
-        if (dwRead == 0)
+        }
+        if (dwRead == 0) {
             break;
+        }
         DWORD size;
         BOOL wroteOk = WriteFile(hf, buf, (DWORD)dwRead, &size, nullptr);
-        if (!wroteOk)
+        if (!wroteOk) {
             goto Exit;
+        }
+        progress.nDownloaded += (i64)dwRead;
+        cbProgress.Call(&progress);
 
-        if (size != dwRead)
+        if (size != dwRead) {
             goto Exit;
+        }
     }
 
     ok = true;
 Exit:
     CloseHandle(hf);
-    if (hReq)
+    if (hReq) {
         InternetCloseHandle(hReq);
-    if (hInet)
+    }
+    if (hInet) {
         InternetCloseHandle(hInet);
-    if (!ok)
+    }
+    if (!ok) {
         file::Delete(destFilePath);
+    }
+    free(buf);
     return ok;
 }
 
-bool HttpPost(const WCHAR* server, int port, const WCHAR* url, str::Str<char>* headers, str::Str<char>* data) {
-    str::Str<char> resp(2048);
+bool HttpPost(const char* serverA, int port, const char* urlA, str::Str* headers, str::Str* data) {
+    str::Str resp(2048);
     bool ok = false;
     char* hdr = nullptr;
     DWORD hdrLen = 0;
@@ -127,26 +190,35 @@ bool HttpPost(const WCHAR* server, int port, const WCHAR* url, str::Str<char>* h
     void* d = nullptr;
     DWORD dLen = 0;
     unsigned int timeoutMs = 15 * 1000;
-    // Get the response status.
     DWORD respHttpCode = 0;
     DWORD respHttpCodeSize = sizeof(respHttpCode);
     DWORD dwRead = 0;
+    DWORD flags;
+    DWORD dwService;
+    WCHAR* server = ToWStrTemp(serverA);
+    WCHAR* url = ToWStrTemp(urlA);
+    DWORD infoLevel;
 
-    HINTERNET hInet = InternetOpenW(USER_AGENT, INTERNET_OPEN_TYPE_PRECONFIG, nullptr, nullptr, 0);
-    if (!hInet)
+    DWORD accessType = INTERNET_OPEN_TYPE_PRECONFIG;
+    HINTERNET hInet = InternetOpenW(kUserAgent, accessType, nullptr, nullptr, 0);
+    if (!hInet) {
         goto Exit;
-    DWORD dwService = INTERNET_SERVICE_HTTP;
+    }
+    dwService = INTERNET_SERVICE_HTTP;
     hConn = InternetConnectW(hInet, server, (INTERNET_PORT)port, nullptr, nullptr, dwService, 0, 1);
-    if (!hConn)
+    if (!hConn) {
         goto Exit;
+    }
 
-    DWORD flags = INTERNET_FLAG_NO_UI;
+    flags = INTERNET_FLAG_NO_UI;
     if (port == 443) {
         flags |= INTERNET_FLAG_SECURE;
     }
     hReq = HttpOpenRequestW(hConn, L"POST", url, nullptr, nullptr, nullptr, flags, 0);
-    if (!hReq)
+    if (!hReq) {
         goto Exit;
+    }
+
     if (headers && headers->size() > 0) {
         hdr = headers->Get();
         hdrLen = (DWORD)headers->size();
@@ -157,21 +229,24 @@ bool HttpPost(const WCHAR* server, int port, const WCHAR* url, str::Str<char>* h
     }
 
     InternetSetOptionW(hReq, INTERNET_OPTION_SEND_TIMEOUT, &timeoutMs, sizeof(timeoutMs));
-
     InternetSetOptionW(hReq, INTERNET_OPTION_RECEIVE_TIMEOUT, &timeoutMs, sizeof(timeoutMs));
 
-    if (!HttpSendRequestA(hReq, hdr, hdrLen, d, dLen))
+    if (!HttpSendRequestA(hReq, hdr, hdrLen, d, dLen)) {
         goto Exit;
+    }
 
-    HttpQueryInfoW(hReq, HTTP_QUERY_STATUS_CODE | HTTP_QUERY_FLAG_NUMBER, &respHttpCode, &respHttpCodeSize, 0);
+    infoLevel = HTTP_QUERY_STATUS_CODE | HTTP_QUERY_FLAG_NUMBER;
+    HttpQueryInfoW(hReq, infoLevel, &respHttpCode, &respHttpCodeSize, nullptr);
 
     do {
         char buf[1024];
-        if (!InternetReadFile(hReq, buf, sizeof(buf), &dwRead))
+        if (!InternetReadFile(hReq, buf, sizeof(buf), &dwRead)) {
             goto Exit;
-        ok = resp.AppendChecked(buf, dwRead);
-        if (!ok)
+        }
+        ok = resp.Append(buf, dwRead);
+        if (!ok) {
             goto Exit;
+        }
     } while (dwRead > 0);
 
 #if 0
@@ -184,39 +259,14 @@ bool HttpPost(const WCHAR* server, int port, const WCHAR* url, str::Str<char>* h
 #endif
     ok = (200 == respHttpCode);
 Exit:
-    if (hReq)
+    if (hReq) {
         InternetCloseHandle(hReq);
-    if (hConn)
+    }
+    if (hConn) {
         InternetCloseHandle(hConn);
-    if (hInet)
+    }
+    if (hInet) {
         InternetCloseHandle(hInet);
+    }
     return ok;
 }
-
-// callback function f is responsible for deleting HttpRsp
-void HttpGetAsync(const WCHAR* url, const std::function<void(HttpRsp*)>& f) {
-    RunAsync([=] {
-        auto rsp = new HttpRsp;
-        rsp->url.SetCopy(url);
-        HttpGet(url, rsp);
-        f(rsp);
-    });
-}
-
-#if 0
-// returns false if failed to download or status code is not 200
-// for other scenarios, check HttpRsp
-static bool  HttpGet(const char *url, HttpRsp *rspOut) {
-    AutoFreeW urlW(str::conv::FromUtf8(url));
-    return HttpGet(urlW, rspOut);
-}
-
-void HttpGetAsync(const char *url, const std::function<void(HttpRsp *)> &f) {
-    std::thread t([=] {
-        auto rsp = new HttpRsp;
-        HttpGet(url, rsp.get());
-        f(rsp.get());
-    });
-    t.detach();
-}
-#endif

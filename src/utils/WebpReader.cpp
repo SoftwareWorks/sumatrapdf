@@ -1,64 +1,61 @@
-/* Copyright 2018 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2022 the SumatraPDF project authors (see AUTHORS file).
    License: Simplified BSD (see COPYING.BSD) */
 
-#include "BaseUtil.h"
-#include "WebpReader.h"
+#include "utils/BaseUtil.h"
+#include "utils/WebpReader.h"
 
 #ifndef NO_LIBWEBP
 
 #include <webp/decode.h>
-using namespace Gdiplus;
 
 namespace webp {
 
 // checks whether this could be data for a WebP image
-bool HasSignature(const char* data, size_t len) {
-    return len > 12 && str::StartsWith(data, "RIFF") && str::StartsWith(data + 8, "WEBP");
+bool HasSignature(const ByteSlice& d) {
+    if (d.size() <= 12) {
+        return false;
+    }
+    char* data = (char*)d.data();
+    return str::StartsWith(data, "RIFF") && str::StartsWith(data + 8, "WEBP");
 }
 
-Size SizeFromData(const char* data, size_t len) {
+Size SizeFromData(const ByteSlice& d) {
     Size size;
-    WebPGetInfo((const uint8_t*)data, len, &size.Width, &size.Height);
+    WebPGetInfo((const u8*)d.data(), d.size(), &size.dx, &size.dy);
     return size;
 }
 
-Bitmap* ImageFromData(const char* data, size_t len) {
+Gdiplus::Bitmap* ImageFromData(const ByteSlice& d) {
     int w, h;
-    if (!WebPGetInfo((const uint8_t*)data, len, &w, &h))
+    if (!WebPGetInfo((const u8*)d.data(), d.size(), &w, &h)) {
         return nullptr;
+    }
 
-    Bitmap bmp(w, h, PixelFormat32bppARGB);
-    Rect bmpRect(0, 0, w, h);
-    BitmapData bmpData;
-    Status ok = bmp.LockBits(&bmpRect, ImageLockModeWrite, PixelFormat32bppARGB, &bmpData);
-    if (ok != Ok)
+    Gdiplus::Bitmap bmp(w, h, PixelFormat32bppARGB);
+    Gdiplus::Rect bmpRect(0, 0, w, h);
+    Gdiplus::BitmapData bmpData;
+    Gdiplus::Status ok = bmp.LockBits(&bmpRect, Gdiplus::ImageLockModeWrite, PixelFormat32bppARGB, &bmpData);
+    if (ok != Gdiplus::Ok) {
         return nullptr;
-    if (!WebPDecodeBGRAInto((const uint8_t*)data, len, (uint8_t*)bmpData.Scan0, bmpData.Stride * h, bmpData.Stride))
+    }
+    if (!WebPDecodeBGRAInto((const u8*)d.data(), d.size(), (u8*)bmpData.Scan0, bmpData.Stride * h, bmpData.Stride)) {
         return nullptr;
+    }
     bmp.UnlockBits(&bmpData);
-
-    // hack to avoid the use of ::new (because there won't be a corresponding ::delete)
     return bmp.Clone(0, 0, w, h, PixelFormat32bppARGB);
 }
 
 } // namespace webp
 
 #else
-
 namespace webp {
-bool HasSignature(const char* data, size_t len) {
-    UNUSED(data);
-    UNUSED(len);
+bool HasSignature(const ByteSlice&) {
     return false;
 }
-Gdiplus::Size SizeFromData(const char* data, size_t len) {
-    UNUSED(data);
-    UNUSED(len);
-    return Gdiplus::Size();
+Size SizeFromData(const ByteSlice&) {
+    return Size();
 }
-Gdiplus::Bitmap* ImageFromData(const char* data, size_t len) {
-    UNUSED(data);
-    UNUSED(len);
+Gdiplus::Bitmap* ImageFromData(const ByteSlice&) {
     return nullptr;
 }
 } // namespace webp

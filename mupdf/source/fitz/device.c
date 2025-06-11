@@ -1,529 +1,904 @@
+// Copyright (C) 2004-2025 Artifex Software, Inc.
+//
+// This file is part of MuPDF.
+//
+// MuPDF is free software: you can redistribute it and/or modify it under the
+// terms of the GNU Affero General Public License as published by the Free
+// Software Foundation, either version 3 of the License, or (at your option)
+// any later version.
+//
+// MuPDF is distributed in the hope that it will be useful, but WITHOUT ANY
+// WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+// FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+// details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with MuPDF. If not, see <https://www.gnu.org/licenses/agpl-3.0.en.html>
+//
+// Alternative licensing terms are available from the licensor.
+// For commercial licensing, see <https://www.artifex.com/> or contact
+// Artifex Software, Inc., 39 Mesa Street, Suite 108A, San Francisco,
+// CA 94129, USA, for further information.
+
 #include "mupdf/fitz.h"
 
+#include <string.h>
+
 fz_device *
-fz_new_device(fz_context *ctx, void *user)
+fz_new_device_of_size(fz_context *ctx, int size)
 {
-	fz_device *dev = fz_malloc_struct(ctx, fz_device);
-	dev->hints = 0;
-	dev->flags = 0;
-	dev->user = user;
-	dev->ctx = ctx;
-	dev->error_depth = 0;
+	fz_device *dev = Memento_label(fz_calloc(ctx, 1, size), "fz_device");
+	dev->refs = 1;
 	return dev;
 }
 
-void
-fz_free_device(fz_device *dev)
+static void
+fz_disable_device(fz_context *ctx, fz_device *dev)
 {
-	if (dev == NULL)
-		return;
-	if (dev->free_user)
-		dev->free_user(dev);
-	fz_free(dev->ctx, dev->container);
-	fz_free(dev->ctx, dev);
+	dev->close_device = NULL;
+	dev->fill_path = NULL;
+	dev->stroke_path = NULL;
+	dev->clip_path = NULL;
+	dev->clip_stroke_path = NULL;
+	dev->fill_text = NULL;
+	dev->stroke_text = NULL;
+	dev->clip_text = NULL;
+	dev->clip_stroke_text = NULL;
+	dev->ignore_text = NULL;
+	dev->fill_shade = NULL;
+	dev->fill_image = NULL;
+	dev->fill_image_mask = NULL;
+	dev->clip_image_mask = NULL;
+	dev->pop_clip = NULL;
+	dev->begin_mask = NULL;
+	dev->end_mask = NULL;
+	dev->begin_group = NULL;
+	dev->end_group = NULL;
+	dev->begin_tile = NULL;
+	dev->end_tile = NULL;
+	dev->render_flags = NULL;
+	dev->set_default_colorspaces = NULL;
+	dev->begin_layer = NULL;
+	dev->end_layer = NULL;
+	dev->begin_structure = NULL;
+	dev->end_structure = NULL;
+	dev->begin_metatext = NULL;
+	dev->end_metatext = NULL;
 }
 
 void
-fz_enable_device_hints(fz_device *dev, int hints)
+fz_close_device(fz_context *ctx, fz_device *dev)
+{
+	if (dev == NULL)
+		return;
+
+	fz_try(ctx)
+	{
+		if (dev->close_device)
+			dev->close_device(ctx, dev);
+	}
+	fz_always(ctx)
+		fz_disable_device(ctx, dev);
+	fz_catch(ctx)
+		fz_rethrow(ctx);
+}
+
+fz_device *
+fz_keep_device(fz_context *ctx, fz_device *dev)
+{
+	return fz_keep_imp(ctx, dev, &dev->refs);
+}
+
+void
+fz_drop_device(fz_context *ctx, fz_device *dev)
+{
+	if (fz_drop_imp(ctx, dev, &dev->refs))
+	{
+		if (dev->close_device)
+			fz_warn(ctx, "dropping unclosed device");
+		if (dev->drop_device)
+			dev->drop_device(ctx, dev);
+		fz_free(ctx, dev->container);
+		fz_free(ctx, dev);
+	}
+}
+
+void
+fz_enable_device_hints(fz_context *ctx, fz_device *dev, int hints)
 {
 	dev->hints |= hints;
 }
 
 void
-fz_disable_device_hints(fz_device *dev, int hints)
+fz_disable_device_hints(fz_context *ctx, fz_device *dev, int hints)
 {
 	dev->hints &= ~hints;
 }
 
-void
-fz_rebind_device(fz_device *dev, fz_context *ctx)
-{
-	if (dev == NULL)
-		return;
-	dev->ctx = ctx;
-	if (dev->rebind)
-		dev->rebind(dev);
-}
-
-void
-fz_begin_page(fz_device *dev, const fz_rect *rect, const fz_matrix *ctm)
-{
-	if (dev->begin_page)
-		dev->begin_page(dev, rect, ctm);
-}
-
-void
-fz_end_page(fz_device *dev)
-{
-	if (dev->end_page)
-		dev->end_page(dev);
-}
-
 static void
-push_clip_stack(fz_device *dev, const fz_rect *rect, int flags)
+push_clip_stack(fz_context *ctx, fz_device *dev, fz_rect rect, int type)
 {
 	if (dev->container_len == dev->container_cap)
 	{
 		int newmax = dev->container_cap * 2;
 		if (newmax == 0)
 			newmax = 4;
-		dev->container = fz_resize_array(dev->ctx, dev->container, newmax, sizeof(*dev->container));
+		dev->container = fz_realloc_array(ctx, dev->container, newmax, fz_device_container_stack);
 		dev->container_cap = newmax;
 	}
 	if (dev->container_len == 0)
-		dev->container[0].scissor = *rect;
+		dev->container[0].scissor = rect;
 	else
 	{
-		dev->container[dev->container_len].scissor = dev->container[dev->container_len-1].scissor;
-		fz_intersect_rect(&dev->container[dev->container_len].scissor, rect);
+		dev->container[dev->container_len].scissor = fz_intersect_rect(dev->container[dev->container_len-1].scissor, rect);
 	}
-	dev->container[dev->container_len].flags = flags;
+	dev->container[dev->container_len].type = type;
 	dev->container[dev->container_len].user = 0;
 	dev->container_len++;
 }
 
 static void
-push_clip_stack_accumulate(fz_device *dev, const fz_rect *rect, int accumulate)
+pop_clip_stack(fz_context *ctx, fz_device *dev, int type)
 {
-	if (accumulate <= 1)
+	if (dev->container_len == 0 || dev->container[dev->container_len-1].type != type)
 	{
-		dev->scissor_accumulator = *rect;
-		if (dev->container_len == dev->container_cap)
-		{
-			int newmax = dev->container_cap * 2;
-			if (newmax == 0)
-				newmax = 4;
-			dev->container = fz_resize_array(dev->ctx, dev->container, newmax, sizeof(*dev->container));
-			dev->container_cap = newmax;
-		}
-		if (dev->container_len > 0)
-			dev->container[dev->container_len].scissor = dev->container[dev->container_len-1].scissor;
-		else
-			dev->container[dev->container_len].scissor = fz_infinite_rect;
-		fz_intersect_rect(&dev->container[dev->container_len].scissor, rect);
-		dev->container[dev->container_len].flags = fz_device_container_stack_is_clip_text;
-		dev->container[dev->container_len].user = 0;
-		dev->container_len++;
+		fz_disable_device(ctx, dev);
+		fz_throw(ctx, FZ_ERROR_ARGUMENT, "device calls unbalanced");
 	}
-	else
-	{
-		if (dev->container_len <= 0)
-			return;
-		fz_union_rect(&dev->scissor_accumulator, rect);
-		fz_intersect_rect(&dev->container[dev->container_len-1].scissor, &dev->scissor_accumulator);
-	}
+	dev->container_len--;
 }
 
 static void
-pop_clip_stack(fz_device *dev)
+pop_push_clip_stack(fz_context *ctx, fz_device *dev, int pop_type, int push_type)
 {
-	if (dev->container_len > 0)
-		dev->container_len--;
+	if (dev->container_len == 0 || dev->container[dev->container_len-1].type != pop_type)
+	{
+		fz_disable_device(ctx, dev);
+		fz_throw(ctx, FZ_ERROR_ARGUMENT, "device calls unbalanced");
+	}
+	dev->container[dev->container_len-1].type = push_type;
 }
 
 void
-fz_fill_path(fz_device *dev, fz_path *path, int even_odd, const fz_matrix *ctm,
-	fz_colorspace *colorspace, float *color, float alpha)
+fz_fill_path(fz_context *ctx, fz_device *dev, const fz_path *path, int even_odd, fz_matrix ctm,
+	fz_colorspace *colorspace, const float *color, float alpha, fz_color_params color_params)
 {
-	if (dev->error_depth)
-		return;
 	if (dev->fill_path)
-		dev->fill_path(dev, path, even_odd, ctm, colorspace, color, alpha);
-}
-
-void
-fz_stroke_path(fz_device *dev, fz_path *path, fz_stroke_state *stroke, const fz_matrix *ctm,
-	fz_colorspace *colorspace, float *color, float alpha)
-{
-	if (dev->error_depth)
-		return;
-	if (dev->stroke_path)
-		dev->stroke_path(dev, path, stroke, ctm, colorspace, color, alpha);
-}
-
-void
-fz_clip_path(fz_device *dev, fz_path *path, const fz_rect *rect, int even_odd, const fz_matrix *ctm)
-{
-	fz_context *ctx = dev->ctx;
-
-	if (dev->error_depth)
 	{
-		dev->error_depth++;
-		return;
-	}
-
-	fz_try(ctx)
-	{
-		if (dev->hints & FZ_MAINTAIN_CONTAINER_STACK)
+		fz_try(ctx)
+			dev->fill_path(ctx, dev, path, even_odd, ctm, colorspace, color, alpha, color_params);
+		fz_catch(ctx)
 		{
-			if (rect == NULL)
-			{
-				fz_rect bbox;
-				fz_bound_path(ctx, path, NULL, ctm, &bbox);
-				push_clip_stack(dev, &bbox, fz_device_container_stack_is_clip_path);
-			}
-			else
-				push_clip_stack(dev, rect, fz_device_container_stack_is_clip_path);
-		}
-		if (dev->clip_path)
-			dev->clip_path(dev, path, rect, even_odd, ctm);
-	}
-	fz_catch(ctx)
-	{
-		dev->error_depth = 1;
-		strcpy(dev->errmess, fz_caught_message(ctx));
-		/* Error swallowed */
-	}
-}
-
-void
-fz_clip_stroke_path(fz_device *dev, fz_path *path, const fz_rect *rect, fz_stroke_state *stroke, const fz_matrix *ctm)
-{
-	fz_context *ctx = dev->ctx;
-
-	if (dev->error_depth)
-	{
-		dev->error_depth++;
-		return;
-	}
-
-	fz_try(ctx)
-	{
-		if (dev->hints & FZ_MAINTAIN_CONTAINER_STACK)
-		{
-			if (rect == NULL)
-			{
-				fz_rect bbox;
-				fz_bound_path(ctx, path, stroke, ctm, &bbox);
-				push_clip_stack(dev, &bbox, fz_device_container_stack_is_clip_stroke_path);
-			}
-			else
-				push_clip_stack(dev, rect, fz_device_container_stack_is_clip_stroke_path);
-		}
-		if (dev->clip_stroke_path)
-			dev->clip_stroke_path(dev, path, rect, stroke, ctm);
-	}
-	fz_catch(ctx)
-	{
-		dev->error_depth = 1;
-		strcpy(dev->errmess, fz_caught_message(ctx));
-		/* Error swallowed */
-	}
-}
-
-void
-fz_fill_text(fz_device *dev, fz_text *text, const fz_matrix *ctm,
-	fz_colorspace *colorspace, float *color, float alpha)
-{
-	if (dev->error_depth)
-		return;
-	if (dev->fill_text)
-		dev->fill_text(dev, text, ctm, colorspace, color, alpha);
-}
-
-void
-fz_stroke_text(fz_device *dev, fz_text *text, fz_stroke_state *stroke, const fz_matrix *ctm,
-	fz_colorspace *colorspace, float *color, float alpha)
-{
-	if (dev->error_depth)
-		return;
-	if (dev->stroke_text)
-		dev->stroke_text(dev, text, stroke, ctm, colorspace, color, alpha);
-}
-
-void
-fz_clip_text(fz_device *dev, fz_text *text, const fz_matrix *ctm, int accumulate)
-{
-	fz_context *ctx = dev->ctx;
-
-	if (dev->error_depth)
-	{
-		if (accumulate == 0 || accumulate == 1)
-			dev->error_depth++;
-		return;
-	}
-
-	fz_try(ctx)
-	{
-		if (dev->hints & FZ_MAINTAIN_CONTAINER_STACK)
-		{
-			fz_rect bbox;
-			fz_bound_text(ctx, text, NULL, ctm, &bbox);
-			push_clip_stack_accumulate(dev, &bbox, accumulate);
-		}
-		if (dev->clip_text)
-			dev->clip_text(dev, text, ctm, accumulate);
-	}
-	fz_catch(ctx)
-	{
-		if (accumulate == 2)
+			fz_disable_device(ctx, dev);
 			fz_rethrow(ctx);
-		dev->error_depth = 1;
-		strcpy(dev->errmess, fz_caught_message(ctx));
-		/* Error swallowed */
-	}
-}
-
-void
-fz_clip_stroke_text(fz_device *dev, fz_text *text, fz_stroke_state *stroke, const fz_matrix *ctm)
-{
-	fz_context *ctx = dev->ctx;
-
-	if (dev->error_depth)
-	{
-		dev->error_depth++;
-		return;
-	}
-
-	fz_try(ctx)
-	{
-		if (dev->hints & FZ_MAINTAIN_CONTAINER_STACK)
-		{
-			fz_rect bbox;
-			fz_bound_text(ctx, text, stroke, ctm, &bbox);
-			push_clip_stack(dev, &bbox, fz_device_container_stack_is_clip_stroke_text);
 		}
-		if (dev->clip_stroke_text)
-			dev->clip_stroke_text(dev, text, stroke, ctm);
-	}
-	fz_catch(ctx)
-	{
-		dev->error_depth = 1;
-		strcpy(dev->errmess, fz_caught_message(ctx));
-		/* Error swallowed */
 	}
 }
 
 void
-fz_ignore_text(fz_device *dev, fz_text *text, const fz_matrix *ctm)
+fz_stroke_path(fz_context *ctx, fz_device *dev, const fz_path *path, const fz_stroke_state *stroke, fz_matrix ctm,
+	fz_colorspace *colorspace, const float *color, float alpha, fz_color_params color_params)
 {
-	if (dev->error_depth)
-		return;
+	if (dev->stroke_path)
+	{
+		fz_try(ctx)
+			dev->stroke_path(ctx, dev, path, stroke, ctm, colorspace, color, alpha, color_params);
+		fz_catch(ctx)
+		{
+			fz_disable_device(ctx, dev);
+			fz_rethrow(ctx);
+		}
+	}
+}
+
+void
+fz_clip_path(fz_context *ctx, fz_device *dev, const fz_path *path, int even_odd, fz_matrix ctm, fz_rect scissor)
+{
+	fz_rect bbox = fz_bound_path(ctx, path, NULL, ctm);
+	bbox = fz_intersect_rect(bbox, scissor);
+	push_clip_stack(ctx, dev, bbox, fz_device_container_stack_is_clip);
+
+	if (dev->clip_path)
+	{
+		fz_try(ctx)
+			dev->clip_path(ctx, dev, path, even_odd, ctm, scissor);
+		fz_catch(ctx)
+		{
+			fz_disable_device(ctx, dev);
+			fz_rethrow(ctx);
+		}
+	}
+}
+
+void
+fz_clip_stroke_path(fz_context *ctx, fz_device *dev, const fz_path *path, const fz_stroke_state *stroke, fz_matrix ctm, fz_rect scissor)
+{
+	fz_rect bbox = fz_bound_path(ctx, path, stroke, ctm);
+	bbox = fz_intersect_rect(bbox, scissor);
+	push_clip_stack(ctx, dev, bbox, fz_device_container_stack_is_clip);
+
+	if (dev->clip_stroke_path)
+	{
+		fz_try(ctx)
+			dev->clip_stroke_path(ctx, dev, path, stroke, ctm, scissor);
+		fz_catch(ctx)
+		{
+			fz_disable_device(ctx, dev);
+			fz_rethrow(ctx);
+		}
+	}
+}
+
+void
+fz_fill_text(fz_context *ctx, fz_device *dev, const fz_text *text, fz_matrix ctm,
+	fz_colorspace *colorspace, const float *color, float alpha, fz_color_params color_params)
+{
+	if (dev->fill_text)
+	{
+		fz_try(ctx)
+			dev->fill_text(ctx, dev, text, ctm, colorspace, color, alpha, color_params);
+		fz_catch(ctx)
+		{
+			fz_disable_device(ctx, dev);
+			fz_rethrow(ctx);
+		}
+	}
+}
+
+void
+fz_stroke_text(fz_context *ctx, fz_device *dev, const fz_text *text, const fz_stroke_state *stroke, fz_matrix ctm,
+	fz_colorspace *colorspace, const float *color, float alpha, fz_color_params color_params)
+{
+	if (dev->stroke_text)
+	{
+		fz_try(ctx)
+			dev->stroke_text(ctx, dev, text, stroke, ctm, colorspace, color, alpha, color_params);
+		fz_catch(ctx)
+		{
+			fz_disable_device(ctx, dev);
+			fz_rethrow(ctx);
+		}
+	}
+}
+
+void
+fz_clip_text(fz_context *ctx, fz_device *dev, const fz_text *text, fz_matrix ctm, fz_rect scissor)
+{
+	fz_rect bbox = fz_bound_text(ctx, text, NULL, ctm);
+	bbox = fz_intersect_rect(bbox, scissor);
+	push_clip_stack(ctx, dev, bbox, fz_device_container_stack_is_clip);
+
+	if (dev->clip_text)
+	{
+		fz_try(ctx)
+			dev->clip_text(ctx, dev, text, ctm, scissor);
+		fz_catch(ctx)
+		{
+			fz_disable_device(ctx, dev);
+			fz_rethrow(ctx);
+		}
+	}
+}
+
+void
+fz_clip_stroke_text(fz_context *ctx, fz_device *dev, const fz_text *text, const fz_stroke_state *stroke, fz_matrix ctm, fz_rect scissor)
+{
+	fz_rect bbox = fz_bound_text(ctx, text, stroke, ctm);
+	bbox = fz_intersect_rect(bbox, scissor);
+	push_clip_stack(ctx, dev, bbox, fz_device_container_stack_is_clip);
+
+	if (dev->clip_stroke_text)
+	{
+		fz_try(ctx)
+			dev->clip_stroke_text(ctx, dev, text, stroke, ctm, scissor);
+		fz_catch(ctx)
+		{
+			fz_disable_device(ctx, dev);
+			fz_rethrow(ctx);
+		}
+	}
+}
+
+void
+fz_ignore_text(fz_context *ctx, fz_device *dev, const fz_text *text, fz_matrix ctm)
+{
 	if (dev->ignore_text)
-		dev->ignore_text(dev, text, ctm);
+	{
+		fz_try(ctx)
+			dev->ignore_text(ctx, dev, text, ctm);
+		fz_catch(ctx)
+		{
+			fz_disable_device(ctx, dev);
+			fz_rethrow(ctx);
+		}
+	}
 }
 
 void
-fz_pop_clip(fz_device *dev)
+fz_pop_clip(fz_context *ctx, fz_device *dev)
 {
-	if (dev->error_depth)
-	{
-		dev->error_depth--;
-		if (dev->error_depth == 0)
-			fz_throw(dev->ctx, FZ_ERROR_GENERIC, "%s", dev->errmess);
-		return;
-	}
-	if (dev->hints & FZ_MAINTAIN_CONTAINER_STACK)
-		pop_clip_stack(dev);
+	pop_clip_stack(ctx, dev, fz_device_container_stack_is_clip);
+
 	if (dev->pop_clip)
-		dev->pop_clip(dev);
+	{
+		fz_try(ctx)
+			dev->pop_clip(ctx, dev);
+		fz_catch(ctx)
+		{
+			fz_disable_device(ctx, dev);
+			fz_rethrow(ctx);
+		}
+	}
 }
 
 void
-fz_fill_shade(fz_device *dev, fz_shade *shade, const fz_matrix *ctm, float alpha)
+fz_fill_shade(fz_context *ctx, fz_device *dev, fz_shade *shade, fz_matrix ctm, float alpha, fz_color_params color_params)
 {
-	if (dev->error_depth)
-		return;
 	if (dev->fill_shade)
-		dev->fill_shade(dev, shade, ctm, alpha);
+	{
+		fz_try(ctx)
+			dev->fill_shade(ctx, dev, shade, ctm, alpha, color_params);
+		fz_catch(ctx)
+		{
+			fz_disable_device(ctx, dev);
+			fz_rethrow(ctx);
+		}
+	}
 }
 
 void
-fz_fill_image(fz_device *dev, fz_image *image, const fz_matrix *ctm, float alpha)
+fz_fill_image(fz_context *ctx, fz_device *dev, fz_image *image, fz_matrix ctm, float alpha, fz_color_params color_params)
 {
-	if (dev->error_depth)
-		return;
+	if (image->colorspace == NULL)
+		fz_throw(ctx, FZ_ERROR_ARGUMENT, "argument to fill image must be a color image");
 	if (dev->fill_image)
-		dev->fill_image(dev, image, ctm, alpha);
+	{
+		fz_try(ctx)
+			dev->fill_image(ctx, dev, image, ctm, alpha, color_params);
+		fz_catch(ctx)
+		{
+			fz_disable_device(ctx, dev);
+			fz_rethrow(ctx);
+		}
+	}
 }
 
 void
-fz_fill_image_mask(fz_device *dev, fz_image *image, const fz_matrix *ctm,
-	fz_colorspace *colorspace, float *color, float alpha)
+fz_fill_image_mask(fz_context *ctx, fz_device *dev, fz_image *image, fz_matrix ctm,
+	fz_colorspace *colorspace, const float *color, float alpha, fz_color_params color_params)
 {
-	if (dev->error_depth)
-		return;
 	if (dev->fill_image_mask)
-		dev->fill_image_mask(dev, image, ctm, colorspace, color, alpha);
-}
-
-void
-fz_clip_image_mask(fz_device *dev, fz_image *image, const fz_rect *rect, const fz_matrix *ctm)
-{
-	fz_context *ctx = dev->ctx;
-
-	if (dev->error_depth)
 	{
-		dev->error_depth++;
-		return;
-	}
-
-	fz_try(ctx)
-	{
-		if (dev->hints & FZ_MAINTAIN_CONTAINER_STACK)
-			push_clip_stack(dev, rect, fz_device_container_stack_is_clip_image_mask);
-		if (dev->clip_image_mask)
-			dev->clip_image_mask(dev, image, rect, ctm);
-	}
-	fz_catch(ctx)
-	{
-		dev->error_depth = 1;
-		strcpy(dev->errmess, fz_caught_message(ctx));
-		/* Error swallowed */
+		fz_try(ctx)
+			dev->fill_image_mask(ctx, dev, image, ctm, colorspace, color, alpha, color_params);
+		fz_catch(ctx)
+		{
+			fz_disable_device(ctx, dev);
+			fz_rethrow(ctx);
+		}
 	}
 }
 
 void
-fz_begin_mask(fz_device *dev, const fz_rect *area, int luminosity, fz_colorspace *colorspace, float *bc)
+fz_clip_image_mask(fz_context *ctx, fz_device *dev, fz_image *image, fz_matrix ctm, fz_rect scissor)
 {
-	fz_context *ctx = dev->ctx;
+	fz_rect bbox = fz_transform_rect(fz_unit_rect, ctm);
+	bbox = fz_intersect_rect(bbox, scissor);
+	push_clip_stack(ctx, dev, bbox, fz_device_container_stack_is_clip);
 
-	if (dev->error_depth)
+	if (dev->clip_image_mask)
 	{
-		dev->error_depth++;
-		return;
-	}
-
-	fz_try(ctx)
-	{
-		if (dev->hints & FZ_MAINTAIN_CONTAINER_STACK)
-			push_clip_stack(dev, area, fz_device_container_stack_in_mask);
-		if (dev->begin_mask)
-			dev->begin_mask(dev, area, luminosity, colorspace, bc);
-	}
-	fz_catch(ctx)
-	{
-		dev->error_depth = 1;
-		strcpy(dev->errmess, fz_caught_message(ctx));
-		/* Error swallowed */
+		fz_try(ctx)
+			dev->clip_image_mask(ctx, dev, image, ctm, scissor);
+		fz_catch(ctx)
+		{
+			fz_disable_device(ctx, dev);
+			fz_rethrow(ctx);
+		}
 	}
 }
 
 void
-fz_end_mask(fz_device *dev)
+fz_begin_mask(fz_context *ctx, fz_device *dev, fz_rect area, int luminosity, fz_colorspace *colorspace, const float *bc, fz_color_params color_params)
 {
-	fz_context *ctx = dev->ctx;
+	push_clip_stack(ctx, dev, area, fz_device_container_stack_is_mask);
 
-	if (dev->error_depth)
+	if (dev->begin_mask)
 	{
-		/* Converts from mask to clip, so no change in stack depth */
-		return;
-	}
-	if (dev->hints & FZ_MAINTAIN_CONTAINER_STACK)
-	{
-		dev->container[dev->container_len-1].flags &= ~fz_device_container_stack_in_mask;
-		dev->container[dev->container_len-1].flags |= fz_device_container_stack_is_mask;
-	}
-	fz_try(ctx)
-	{
-		if (dev->end_mask)
-			dev->end_mask(dev);
-	}
-	fz_catch(ctx)
-	{
-		dev->error_depth = 1;
-		strcpy(dev->errmess, fz_caught_message(ctx));
-		/* Error swallowed */
+		fz_try(ctx)
+			dev->begin_mask(ctx, dev, area, luminosity, colorspace, bc, color_params);
+		fz_catch(ctx)
+		{
+			fz_disable_device(ctx, dev);
+			fz_rethrow(ctx);
+		}
 	}
 }
 
 void
-fz_begin_group(fz_device *dev, const fz_rect *area, int isolated, int knockout, int blendmode, float alpha)
+fz_end_mask_tr(fz_context *ctx, fz_device *dev, fz_function *fn)
 {
-	fz_context *ctx = dev->ctx;
+	pop_push_clip_stack(ctx, dev, fz_device_container_stack_is_mask, fz_device_container_stack_is_clip);
 
-	if (dev->error_depth)
+	if (dev->end_mask)
 	{
-		dev->error_depth++;
-		return;
-	}
-
-	fz_try(ctx)
-	{
-		if (dev->hints & FZ_MAINTAIN_CONTAINER_STACK)
-			push_clip_stack(dev, area, fz_device_container_stack_is_group);
-		if (dev->begin_group)
-			dev->begin_group(dev, area, isolated, knockout, blendmode, alpha);
-	}
-	fz_catch(ctx)
-	{
-		dev->error_depth = 1;
-		strcpy(dev->errmess, fz_caught_message(ctx));
-		/* Error swallowed */
+		fz_try(ctx)
+			dev->end_mask(ctx, dev, fn);
+		fz_catch(ctx)
+		{
+			fz_disable_device(ctx, dev);
+			fz_rethrow(ctx);
+		}
 	}
 }
 
 void
-fz_end_group(fz_device *dev)
+fz_end_mask(fz_context *ctx, fz_device *dev)
 {
-	if (dev->error_depth)
+	fz_end_mask_tr(ctx, dev, NULL);
+}
+
+void
+fz_begin_group(fz_context *ctx, fz_device *dev, fz_rect area, fz_colorspace *cs, int isolated, int knockout, int blendmode, float alpha)
+{
+	push_clip_stack(ctx, dev, area, fz_device_container_stack_is_group);
+
+	if (dev->begin_group)
 	{
-		dev->error_depth--;
-		if (dev->error_depth == 0)
-			fz_throw(dev->ctx, FZ_ERROR_GENERIC, "%s", dev->errmess);
-		return;
+		fz_try(ctx)
+			dev->begin_group(ctx, dev, area, cs, isolated, knockout, blendmode, alpha);
+		fz_catch(ctx)
+		{
+			fz_disable_device(ctx, dev);
+			fz_rethrow(ctx);
+		}
 	}
+}
+
+void
+fz_end_group(fz_context *ctx, fz_device *dev)
+{
+	pop_clip_stack(ctx, dev, fz_device_container_stack_is_group);
+
 	if (dev->end_group)
-		dev->end_group(dev);
-	if (dev->hints & FZ_MAINTAIN_CONTAINER_STACK)
-		pop_clip_stack(dev);
+	{
+		fz_try(ctx)
+			dev->end_group(ctx, dev);
+		fz_catch(ctx)
+		{
+			fz_disable_device(ctx, dev);
+			fz_rethrow(ctx);
+		}
+	}
 }
 
 void
-fz_begin_tile(fz_device *dev, const fz_rect *area, const fz_rect *view, float xstep, float ystep, const fz_matrix *ctm)
+fz_begin_tile(fz_context *ctx, fz_device *dev, fz_rect area, fz_rect view, float xstep, float ystep, fz_matrix ctm)
 {
-	(void)fz_begin_tile_id(dev, area, view, xstep, ystep, ctm, 0);
+	(void)fz_begin_tile_id(ctx, dev, area, view, xstep, ystep, ctm, 0);
 }
 
 int
-fz_begin_tile_id(fz_device *dev, const fz_rect *area, const fz_rect *view, float xstep, float ystep, const fz_matrix *ctm, int id)
+fz_begin_tile_id(fz_context *ctx, fz_device *dev, fz_rect area, fz_rect view, float xstep, float ystep, fz_matrix ctm, int id)
 {
-	fz_context *ctx = dev->ctx;
-	int ret = 0;
+	int result = 0;
 
-	if (dev->error_depth)
-	{
-		dev->error_depth++;
-		return 0;
-	}
+	push_clip_stack(ctx, dev, area, fz_device_container_stack_is_tile);
 
 	if (xstep < 0)
 		xstep = -xstep;
 	if (ystep < 0)
 		ystep = -ystep;
+	if (dev->begin_tile)
+	{
+		fz_try(ctx)
+			result = dev->begin_tile(ctx, dev, area, view, xstep, ystep, ctm, id);
+		fz_catch(ctx)
+		{
+			fz_disable_device(ctx, dev);
+			fz_rethrow(ctx);
+		}
+	}
 
-	fz_try(ctx)
-	{
-		if (dev->begin_tile)
-			ret = dev->begin_tile(dev, area, view, xstep, ystep, ctm, id);
-	}
-	fz_catch(ctx)
-	{
-		dev->error_depth = 1;
-		strcpy(dev->errmess, fz_caught_message(ctx));
-		/* Error swallowed */
-	}
-	return ret;
+	return result;
 }
 
 void
-fz_end_tile(fz_device *dev)
+fz_end_tile(fz_context *ctx, fz_device *dev)
 {
-	if (dev->error_depth)
-	{
-		dev->error_depth--;
-		if (dev->error_depth == 0)
-			fz_throw(dev->ctx, FZ_ERROR_GENERIC, "%s", dev->errmess);
-		return;
-	}
+	pop_clip_stack(ctx, dev, fz_device_container_stack_is_tile);
+
 	if (dev->end_tile)
-		dev->end_tile(dev);
+	{
+		fz_try(ctx)
+			dev->end_tile(ctx, dev);
+		fz_catch(ctx)
+		{
+			fz_disable_device(ctx, dev);
+			fz_rethrow(ctx);
+		}
+	}
 }
 
-/* SumatraPDF: support transfer functions */
 void
-fz_apply_transfer_function(fz_device *dev, fz_transfer_function *tr, int for_mask)
+fz_render_flags(fz_context *ctx, fz_device *dev, int set, int clear)
 {
-	if (dev->apply_transfer_function)
-		dev->apply_transfer_function(dev, tr, for_mask);
+	if (dev->render_flags)
+	{
+		fz_try(ctx)
+			dev->render_flags(ctx, dev, set, clear);
+		fz_catch(ctx)
+		{
+			fz_disable_device(ctx, dev);
+			fz_rethrow(ctx);
+		}
+	}
+}
+
+void
+fz_set_default_colorspaces(fz_context *ctx, fz_device *dev, fz_default_colorspaces *default_cs)
+{
+	if (dev->set_default_colorspaces)
+	{
+		fz_try(ctx)
+			dev->set_default_colorspaces(ctx, dev, default_cs);
+		fz_catch(ctx)
+		{
+			fz_disable_device(ctx, dev);
+			fz_rethrow(ctx);
+		}
+	}
+}
+
+void fz_begin_layer(fz_context *ctx, fz_device *dev, const char *layer_name)
+{
+	if (dev->begin_layer)
+	{
+		fz_try(ctx)
+			dev->begin_layer(ctx, dev, layer_name);
+		fz_catch(ctx)
+		{
+			fz_disable_device(ctx, dev);
+			fz_rethrow(ctx);
+		}
+	}
+}
+
+void fz_end_layer(fz_context *ctx, fz_device *dev)
+{
+	if (dev->end_layer)
+	{
+		fz_try(ctx)
+			dev->end_layer(ctx, dev);
+		fz_catch(ctx)
+		{
+			fz_disable_device(ctx, dev);
+			fz_rethrow(ctx);
+		}
+	}
+}
+
+void fz_begin_structure(fz_context *ctx, fz_device *dev, fz_structure str, const char *raw, int idx)
+{
+	if (dev->begin_structure)
+	{
+		fz_try(ctx)
+			dev->begin_structure(ctx, dev, str, raw, idx);
+		fz_catch(ctx)
+		{
+			fz_disable_device(ctx, dev);
+			fz_rethrow(ctx);
+		}
+	}
+}
+
+void fz_end_structure(fz_context *ctx, fz_device *dev)
+{
+	if (dev->end_structure)
+	{
+		fz_try(ctx)
+			dev->end_structure(ctx, dev);
+		fz_catch(ctx)
+		{
+			fz_disable_device(ctx, dev);
+			fz_rethrow(ctx);
+		}
+	}
+}
+
+void fz_begin_metatext(fz_context *ctx, fz_device *dev, fz_metatext meta, const char *meta_text)
+{
+	if (dev->begin_metatext)
+	{
+		fz_try(ctx)
+			dev->begin_metatext(ctx, dev, meta, meta_text);
+		fz_catch(ctx)
+		{
+			fz_disable_device(ctx, dev);
+			fz_rethrow(ctx);
+		}
+	}
+}
+
+void fz_end_metatext(fz_context *ctx, fz_device *dev)
+{
+	if (dev->end_metatext)
+	{
+		fz_try(ctx)
+			dev->end_metatext(ctx, dev);
+		fz_catch(ctx)
+		{
+			fz_disable_device(ctx, dev);
+			fz_rethrow(ctx);
+		}
+	}
+}
+
+fz_rect
+fz_device_current_scissor(fz_context *ctx, fz_device *dev)
+{
+	if (dev->container_len > 0)
+		return dev->container[dev->container_len-1].scissor;
+	return fz_infinite_rect;
+}
+
+const char *
+fz_structure_to_string(fz_structure type)
+{
+	switch (type)
+	{
+	default:
+		return "Invalid";
+	case FZ_STRUCTURE_DOCUMENT:
+		return "Document";
+	case FZ_STRUCTURE_PART:
+		return "Part";
+	case FZ_STRUCTURE_ART:
+		return "Art";
+	case FZ_STRUCTURE_SECT:
+		return "Sect";
+	case FZ_STRUCTURE_DIV:
+		return "Div";
+	case FZ_STRUCTURE_BLOCKQUOTE:
+		return "BlockQuote";
+	case FZ_STRUCTURE_CAPTION:
+		return "Caption";
+	case FZ_STRUCTURE_TOC:
+		return "TOC";
+	case FZ_STRUCTURE_TOCI:
+		return "TOCI";
+	case FZ_STRUCTURE_INDEX:
+		return "Index";
+	case FZ_STRUCTURE_NONSTRUCT:
+		return "NonDtruct";
+	case FZ_STRUCTURE_PRIVATE:
+		return "Private";
+	/* Grouping elements (PDF 2.0 - Table 364) */
+	case FZ_STRUCTURE_DOCUMENTFRAGMENT:
+		return "DocumentFragment";
+	/* Grouping elements (PDF 2.0 - Table 365) */
+	case FZ_STRUCTURE_ASIDE:
+		return "Aside";
+	/* Grouping elements (PDF 2.0 - Table 366) */
+	case FZ_STRUCTURE_TITLE:
+		return "Title";
+	case FZ_STRUCTURE_FENOTE:
+		return "FENote";
+	/* Grouping elements (PDF 2.0 - Table 367) */
+	case FZ_STRUCTURE_SUB:
+		return "Sub";
+
+	/* Paragraphlike elements (PDF 1.7 - Table 10.21) */
+	case FZ_STRUCTURE_P:
+		return "P";
+	case FZ_STRUCTURE_H:
+		return "H";
+	case FZ_STRUCTURE_H1:
+		return "H1";
+	case FZ_STRUCTURE_H2:
+		return "H2";
+	case FZ_STRUCTURE_H3:
+		return "H3";
+	case FZ_STRUCTURE_H4:
+		return "H4";
+	case FZ_STRUCTURE_H5:
+		return "H5";
+	case FZ_STRUCTURE_H6:
+		return "H6";
+
+	/* List elements (PDF 1.7 - Table 10.23) */
+	case FZ_STRUCTURE_LIST:
+		return "L";
+	case FZ_STRUCTURE_LISTITEM:
+		return "LI";
+	case FZ_STRUCTURE_LABEL:
+		return "Lbl";
+	case FZ_STRUCTURE_LISTBODY:
+		return "LBody";
+
+	/* Table elements (PDF 1.7 - Table 10.24) */
+	case FZ_STRUCTURE_TABLE:
+		return "Table";
+	case FZ_STRUCTURE_TR:
+		return "TR";
+	case FZ_STRUCTURE_TH:
+		return "TH";
+	case FZ_STRUCTURE_TD:
+		return "TD";
+	case FZ_STRUCTURE_THEAD:
+		return "THead";
+	case FZ_STRUCTURE_TBODY:
+		return "TBody";
+	case FZ_STRUCTURE_TFOOT:
+		return "TFoot";
+
+	/* Inline elements (PDF 1.7 - Table 10.25) */
+	case FZ_STRUCTURE_SPAN:
+		return "Span";
+	case FZ_STRUCTURE_QUOTE:
+		return "Quote";
+	case FZ_STRUCTURE_NOTE:
+		return "Note";
+	case FZ_STRUCTURE_REFERENCE:
+		return "Reference";
+	case FZ_STRUCTURE_BIBENTRY:
+		return "BibEntry";
+	case FZ_STRUCTURE_CODE:
+		return "Code";
+	case FZ_STRUCTURE_LINK:
+		return "Link";
+	case FZ_STRUCTURE_ANNOT:
+		return "Annot";
+	/* Inline elements (PDF 2.0 - Table 368) */
+	case FZ_STRUCTURE_EM:
+		return "Em";
+	case FZ_STRUCTURE_STRONG:
+		return "Strong";
+
+	/* Ruby inline element (PDF 1.7 - Table 10.26) */
+	case FZ_STRUCTURE_RUBY:
+		return "Ruby";
+	case FZ_STRUCTURE_RB:
+		return "RB";
+	case FZ_STRUCTURE_RT:
+		return "RT";
+	case FZ_STRUCTURE_RP:
+		return "RP";
+
+	/* Warichu inline element (PDF 1.7 - Table 10.26) */
+	case FZ_STRUCTURE_WARICHU:
+		return "Warichu";
+	case FZ_STRUCTURE_WT:
+		return "WT";
+	case FZ_STRUCTURE_WP:
+		return "WP";
+
+	/* Illustration elements (PDF 1.7 - Table 10.27) */
+	case FZ_STRUCTURE_FIGURE:
+		return "Figure";
+	case FZ_STRUCTURE_FORMULA:
+		return "Formula";
+	case FZ_STRUCTURE_FORM:
+		return "Form";
+
+	/* Artifact structure type (PDF 2.0 - Table 375) */
+	case FZ_STRUCTURE_ARTIFACT:
+		return "Artifact";
+	}
+}
+
+fz_structure
+fz_structure_from_string(const char *str)
+{
+	if (!strcmp(str, "Document")) return FZ_STRUCTURE_DOCUMENT;
+	if (!strcmp(str, "Part")) return FZ_STRUCTURE_PART;
+	if (!strcmp(str, "Art")) return FZ_STRUCTURE_ART;
+	if (!strcmp(str, "Sect")) return FZ_STRUCTURE_SECT;
+	if (!strcmp(str, "Div")) return FZ_STRUCTURE_DIV;
+	if (!strcmp(str, "BlockQuote")) return FZ_STRUCTURE_BLOCKQUOTE;
+	if (!strcmp(str, "Caption")) return FZ_STRUCTURE_CAPTION;
+	if (!strcmp(str, "TOC")) return FZ_STRUCTURE_TOC;
+	if (!strcmp(str, "TOCI")) return FZ_STRUCTURE_TOCI;
+	if (!strcmp(str, "Index")) return FZ_STRUCTURE_INDEX;
+	if (!strcmp(str, "NonStruct")) return FZ_STRUCTURE_NONSTRUCT;
+	if (!strcmp(str, "Private")) return FZ_STRUCTURE_PRIVATE;
+	if (!strcmp(str, "P")) return FZ_STRUCTURE_P;
+	if (!strcmp(str, "H")) return FZ_STRUCTURE_H;
+	if (!strcmp(str, "H1")) return FZ_STRUCTURE_H1;
+	if (!strcmp(str, "H2")) return FZ_STRUCTURE_H2;
+	if (!strcmp(str, "H3")) return FZ_STRUCTURE_H3;
+	if (!strcmp(str, "H4")) return FZ_STRUCTURE_H4;
+	if (!strcmp(str, "H5")) return FZ_STRUCTURE_H5;
+	if (!strcmp(str, "H6")) return FZ_STRUCTURE_H6;
+	if (!strcmp(str, "L")) return FZ_STRUCTURE_LIST;
+	if (!strcmp(str, "LI")) return FZ_STRUCTURE_LISTITEM;
+	if (!strcmp(str, "Lbl")) return FZ_STRUCTURE_LABEL;
+	if (!strcmp(str, "LBody")) return FZ_STRUCTURE_LISTBODY;
+	if (!strcmp(str, "Table")) return FZ_STRUCTURE_TABLE;
+	if (!strcmp(str, "TR")) return FZ_STRUCTURE_TR;
+	if (!strcmp(str, "TH")) return FZ_STRUCTURE_TH;
+	if (!strcmp(str, "TD")) return FZ_STRUCTURE_TD;
+	if (!strcmp(str, "THead")) return FZ_STRUCTURE_THEAD;
+	if (!strcmp(str, "TBody")) return FZ_STRUCTURE_TBODY;
+	if (!strcmp(str, "TFoot")) return FZ_STRUCTURE_TFOOT;
+	if (!strcmp(str, "Span")) return FZ_STRUCTURE_SPAN;
+	if (!strcmp(str, "Quote")) return FZ_STRUCTURE_QUOTE;
+	if (!strcmp(str, "Note")) return FZ_STRUCTURE_NOTE;
+	if (!strcmp(str, "Reference")) return FZ_STRUCTURE_REFERENCE;
+	if (!strcmp(str, "BibEntry")) return FZ_STRUCTURE_BIBENTRY;
+	if (!strcmp(str, "Code")) return FZ_STRUCTURE_CODE;
+	if (!strcmp(str, "Link")) return FZ_STRUCTURE_LINK;
+	if (!strcmp(str, "Annot")) return FZ_STRUCTURE_ANNOT;
+	if (!strcmp(str, "Ruby")) return FZ_STRUCTURE_RUBY;
+	if (!strcmp(str, "RB")) return FZ_STRUCTURE_RB;
+	if (!strcmp(str, "RT")) return FZ_STRUCTURE_RT;
+	if (!strcmp(str, "RP")) return FZ_STRUCTURE_RP;
+	if (!strcmp(str, "Warichu")) return FZ_STRUCTURE_WARICHU;
+	if (!strcmp(str, "WT")) return FZ_STRUCTURE_WT;
+	if (!strcmp(str, "WP")) return FZ_STRUCTURE_WP;
+	if (!strcmp(str, "Figure")) return FZ_STRUCTURE_FIGURE;
+	if (!strcmp(str, "Formula")) return FZ_STRUCTURE_FORMULA;
+	if (!strcmp(str, "Form")) return FZ_STRUCTURE_FORM;
+	return FZ_STRUCTURE_INVALID;
+}
+
+fz_function *
+fz_keep_function(fz_context *ctx, fz_function *func)
+{
+	return fz_keep_storable(ctx, &func->storable);
+}
+
+void
+fz_drop_function(fz_context *ctx, fz_function *func)
+{
+	fz_drop_storable(ctx, &func->storable);
+}
+
+size_t
+fz_function_size(fz_context *ctx, fz_function *func)
+{
+	return (func ? func->size : 0);
+}
+
+void
+fz_eval_function(fz_context *ctx, fz_function *func, const float *in, int inlen, float *out, int outlen)
+{
+	float fakein[FZ_FUNCTION_MAX_M];
+	float fakeout[FZ_FUNCTION_MAX_N];
+	int i;
+
+	if (inlen < func->m)
+	{
+		for (i = 0; i < inlen; ++i)
+			fakein[i] = in[i];
+		for (; i < func->m; ++i)
+			fakein[i] = 0;
+		in = fakein;
+	}
+
+	if (outlen < func->n)
+	{
+		func->eval(ctx, func, in, fakeout);
+		for (i = 0; i < outlen; ++i)
+			out[i] = fakeout[i];
+	}
+	else
+	{
+		func->eval(ctx, func, in, out);
+		for (i = func->n; i < outlen; ++i)
+			out[i] = 0;
+	}
+}
+
+fz_function *
+fz_new_function_of_size(fz_context *ctx, int size, size_t size2, int m, int n, fz_function_eval_fn *eval, fz_store_drop_fn *drop)
+{
+	fz_function *fn = fz_calloc(ctx, 1, size);
+
+	FZ_INIT_STORABLE(fn, 1, drop);
+	fn->eval = eval;
+	fn->m = m;
+	fn->n = n;
+
+	return fn;
 }

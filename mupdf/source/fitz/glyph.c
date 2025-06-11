@@ -1,11 +1,38 @@
+// Copyright (C) 2004-2021 Artifex Software, Inc.
+//
+// This file is part of MuPDF.
+//
+// MuPDF is free software: you can redistribute it and/or modify it under the
+// terms of the GNU Affero General Public License as published by the Free
+// Software Foundation, either version 3 of the License, or (at your option)
+// any later version.
+//
+// MuPDF is distributed in the hope that it will be useful, but WITHOUT ANY
+// WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+// FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+// details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with MuPDF. If not, see <https://www.gnu.org/licenses/agpl-3.0.en.html>
+//
+// Alternative licensing terms are available from the licensor.
+// For commercial licensing, see <https://www.artifex.com/> or contact
+// Artifex Software, Inc., 39 Mesa Street, Suite 108A, San Francisco,
+// CA 94129, USA, for further information.
+
 #include "mupdf/fitz.h"
+
+#include "glyph-imp.h"
+#include "pixmap-imp.h"
+
+#include <string.h>
 
 #define RLE_THRESHOLD 256
 
 fz_glyph *
 fz_keep_glyph(fz_context *ctx, fz_glyph *glyph)
 {
-	return (fz_glyph *)fz_keep_storable(ctx, &glyph->storable);
+	return fz_keep_storable(ctx, &glyph->storable);
 }
 
 void
@@ -15,33 +42,32 @@ fz_drop_glyph(fz_context *ctx, fz_glyph *glyph)
 }
 
 static void
-fz_free_glyph_imp(fz_context *ctx, fz_storable *glyph_)
+fz_drop_glyph_imp(fz_context *ctx, fz_storable *glyph_)
 {
 	fz_glyph *glyph = (fz_glyph *)glyph_;
-
-	if (glyph == NULL)
-		return;
 	fz_drop_pixmap(ctx, glyph->pixmap);
 	fz_free(ctx, glyph);
 }
 
-fz_irect *
-fz_glyph_bbox(fz_context *ctx, fz_glyph *glyph, fz_irect *bbox)
+fz_irect
+fz_glyph_bbox(fz_context *ctx, fz_glyph *glyph)
 {
-	bbox->x0 = glyph->x;
-	bbox->y0 = glyph->y;
-	bbox->x1 = glyph->x + glyph->w;
-	bbox->y1 = glyph->y + glyph->h;
+	fz_irect bbox;
+	bbox.x0 = glyph->x;
+	bbox.y0 = glyph->y;
+	bbox.x1 = glyph->x + glyph->w;
+	bbox.y1 = glyph->y + glyph->h;
 	return bbox;
 }
 
-fz_irect *
-fz_glyph_bbox_no_ctx(fz_glyph *glyph, fz_irect *bbox)
+fz_irect
+fz_glyph_bbox_no_ctx(fz_glyph *glyph)
 {
-	bbox->x0 = glyph->x;
-	bbox->y0 = glyph->y;
-	bbox->x1 = glyph->x + glyph->w;
-	bbox->y1 = glyph->y + glyph->h;
+	fz_irect bbox;
+	bbox.x0 = glyph->x;
+	bbox.y0 = glyph->y;
+	bbox.x1 = glyph->x + glyph->w;
+	bbox.y1 = glyph->y + glyph->h;
 	return bbox;
 }
 
@@ -58,6 +84,8 @@ fz_glyph_height(fz_context *ctx, fz_glyph *glyph)
 }
 
 #ifndef NDEBUG
+#include <stdio.h>
+
 void
 fz_dump_glyph(fz_glyph *glyph)
 {
@@ -136,7 +164,7 @@ fz_new_glyph_from_pixmap(fz_context *ctx, fz_pixmap *pix)
 		if (pix->n != 1 || pix->w * pix->h < RLE_THRESHOLD)
 		{
 			glyph = fz_malloc_struct(ctx, fz_glyph);
-			FZ_INIT_STORABLE(glyph, 1, fz_free_glyph_imp);
+			FZ_INIT_STORABLE(glyph, 1, fz_drop_glyph_imp);
 			glyph->x = pix->x;
 			glyph->y = pix->y;
 			glyph->w = pix->w;
@@ -145,7 +173,7 @@ fz_new_glyph_from_pixmap(fz_context *ctx, fz_pixmap *pix)
 			glyph->pixmap = fz_keep_pixmap(ctx, pix);
 		}
 		else
-			glyph = fz_new_glyph_from_8bpp_data(ctx, pix->x, pix->y, pix->w, pix->h, pix->samples, pix->w);
+			glyph = fz_new_glyph_from_8bpp_data(ctx, pix->x, pix->y, pix->w, pix->h, pix->samples, pix->stride);
 	}
 	fz_always(ctx)
 	{
@@ -180,14 +208,14 @@ fz_new_glyph_from_8bpp_data(fz_context *ctx, int x, int y, int w, int h, unsigne
 
 		size = h * w;
 		fill = h * sizeof(int);
-		glyph = fz_malloc(ctx, sizeof(fz_glyph) + size);
-		FZ_INIT_STORABLE(glyph, 1, fz_free_glyph_imp);
+		glyph = Memento_label(fz_malloc(ctx, sizeof(fz_glyph) + size), "fz_glyph(8)");
+		FZ_INIT_STORABLE(glyph, 1, fz_drop_glyph_imp);
 		glyph->x = x;
 		glyph->y = y;
 		glyph->w = w;
 		glyph->h = h;
 		glyph->pixmap = NULL;
-		if (w == 0 || h == 0)
+		if (h == 0)
 		{
 			glyph->size = 0;
 			break;
@@ -277,7 +305,7 @@ fz_new_glyph_from_8bpp_data(fz_context *ctx, int x, int y, int w, int h, unsigne
 		}
 		if (fill != size)
 		{
-			glyph = fz_resize_array(ctx, glyph, 1, sizeof(fz_glyph) + fill);
+			glyph = fz_realloc(ctx, glyph, sizeof(fz_glyph) + fill);
 			size = fill;
 		}
 		glyph->size = size;
@@ -287,8 +315,8 @@ fz_new_glyph_from_8bpp_data(fz_context *ctx, int x, int y, int w, int h, unsigne
 		 * and reenter the try context, and this routine is speed
 		 * critical. */
 try_pixmap:
-		glyph = fz_resize_array(ctx, glyph, 1, sizeof(fz_glyph));
-		FZ_INIT_STORABLE(glyph, 1, fz_free_glyph_imp);
+		glyph = Memento_label(fz_realloc(ctx, glyph, sizeof(fz_glyph)), "fz_glyph(8r)");
+		FZ_INIT_STORABLE(glyph, 1, fz_drop_glyph_imp);
 		pix = fz_new_pixmap_from_8bpp_data(ctx, x, y, w, h, orig_sp, span);
 		glyph->x = pix->x;
 		glyph->y = pix->y;
@@ -328,14 +356,14 @@ fz_new_glyph_from_1bpp_data(fz_context *ctx, int x, int y, int w, int h, unsigne
 
 		size = h * w;
 		fill = h * sizeof(int);
-		glyph = fz_malloc(ctx, sizeof(fz_glyph) + size);
-		FZ_INIT_STORABLE(glyph, 1, fz_free_glyph_imp);
+		glyph = Memento_label(fz_malloc(ctx, sizeof(fz_glyph) + size), "fz_glyph(1)");
+		FZ_INIT_STORABLE(glyph, 1, fz_drop_glyph_imp);
 		glyph->x = x;
 		glyph->y = y;
 		glyph->w = w;
 		glyph->h = h;
 		glyph->pixmap = NULL;
-		if (w == 0 || h == 0)
+		if (h == 0)
 		{
 			glyph->size = 0;
 			break;
@@ -409,7 +437,7 @@ fz_new_glyph_from_1bpp_data(fz_context *ctx, int x, int y, int w, int h, unsigne
 		}
 		if (fill != size)
 		{
-			glyph = fz_resize_array(ctx, glyph, 1, sizeof(fz_glyph) + fill);
+			glyph = fz_realloc(ctx, glyph, sizeof(fz_glyph) + fill);
 			size = fill;
 		}
 		glyph->size = size;
@@ -419,8 +447,8 @@ fz_new_glyph_from_1bpp_data(fz_context *ctx, int x, int y, int w, int h, unsigne
 		 * and reenter the try context, and this routine is speed
 		 * critical. */
 try_pixmap:
-		glyph = fz_resize_array(ctx, glyph, 1, sizeof(fz_glyph));
-		FZ_INIT_STORABLE(glyph, 1, fz_free_glyph_imp);
+		glyph = fz_realloc(ctx, glyph, sizeof(fz_glyph));
+		FZ_INIT_STORABLE(glyph, 1, fz_drop_glyph_imp);
 		pix = fz_new_pixmap_from_1bpp_data(ctx, x, y, w, h, orig_sp, span);
 		glyph->x = pix->x;
 		glyph->y = pix->y;

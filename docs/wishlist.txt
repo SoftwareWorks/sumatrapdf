@@ -5,7 +5,7 @@ implement) as low/med/high
 
 -- fullscreen (low)
 
-See if http://stackoverflow.com/questions/2382464/win32-full-screen-and-hiding-taskbar 
+See if https://stackoverflow.com/questions/2382464/win32-full-screen-and-hiding-taskbar
 has better way of switching to fullscreen
 
 -- text viewer (high)
@@ -24,23 +24,15 @@ only load the needed part as the user scrolls through the document.
 
 -- hex viewer (high)
 
--- search for ebook UI (med)
+-- search for eBook UI (med)
 
 -- thumbnails (med)
 
 Many viewers have an option to navigate document via thumbnails.
 
-For perf, we could cache thumbnails as a single, webp-encoded image + info
+For perf, we could cache thumbnails as a single, WebP-encoded image + info
 about where a thumbnail for a given page is within the image (similar to
 sprite technique in web dev)
-
--- wclang build (med)
-
-To get static analysis from clang, use wclang (https://github.com/tpoechtrager/wclang).
-Would require writing a makefile and probably code changes to acommodate
-mingw winapi headers.
-
-Then would need another buildbot script (wclang only works on Linux).
 
 -- toolbar improvements (med, risky)
 
@@ -52,11 +44,6 @@ of controls in the toolbar).
 
 This would also help in unifying full-screen modes (overlaid, auto-hidden
 toolbar is a better match for full-screen mode than the current one).
-
--- change fit width mode
-
-Make all pages have uniform size. Currently they all have uniform zoom ratio
-and one big page can make other pages really small.
 
 -- better looking notifications (med)
 
@@ -74,7 +61,7 @@ I think we sometimes get bug reports when PDF page doesn't render because of
 running out of memory. It would be good to show the exact cause of page
 rendering failure instead of generic "failed to render" message.
 
--- faster re-layout for ebooks (med, risky)
+-- faster re-layout for eBooks (med, risky)
 
 Layout time is dominated by measuring strings.
 
@@ -87,17 +74,17 @@ When users resizes the window, we would only need to redo phase 3. A small
 complication: when a string doesn't fit in a single line, we need to split
 it into to string instructions. We would need to be able to do it e.g. by
 adding a "compound" instruction, that just contains one or more other instructions.
-That way the istruction stream would be almost-immutable, and we could turn
+That way the instruction stream would be almost-immutable, and we could turn
 a e.g. a long string into 2 smaller strings by replacing string instruction with
 "compound" instructions that points to the original string instructions (so that we
 can undo that in the next layout) and 2 or more substrings.
 
 Changing default font would require redoing phase 2 and 3.
 
--- ebook: re-introduce preserving top of page after re-layout (risky, med)
+-- eBook: re-introduce preserving top of page after re-layout (risky, med)
 
 The code to preserve current top of page after re-layout was so complicated
-that I had to remove it in order to implement dual pages in ebook mode.
+that I had to remove it in order to implement dual pages in eBook mode.
 It would be nice to bring it back in a saner way and without the problem
 of breaking the styling.
 It would be easier if we implement faster re-layout as described above and
@@ -111,19 +98,11 @@ We could avoid breaking styling because now we have access to the whole instruct
 stream and we could quickly scan back instructions from any point to find
 formatting instructions and recover current styling.
 
--- improve find UI (med, risky)
-
-The one I like the best is in Chrome browser (with
-modification needed for specyfing search parameters like case sensitivity
-and additions like 'match whole words' modifier). Another nice implementation
-is in Kindle PC reader.
-We could then free up significant amount of space in the toolbar.
-
 -- manual cropping of margins for PDFs (med, risky)
 
 Screen space is always at premium and most PDFs have very wasteful
 margins. Good Reader has a really nice feature for manual cropping of margins
-(http://www.goodiware.com/gr-man-view-pdf.html#crop). They have a mode for
+(https://www.goodiware.com/gr-man-view-pdf.html#crop). They have a mode for
 manually selecting visible part of the PDF, similar to how many graphics
 program implement cropping. Cropping can be set for all pages or separately
 for odd/even pages. Cropping can also be reset. After cropping, the program
@@ -141,8 +120,6 @@ like a page number.
 
 -- Editing/saving of PDF forms (high)
 
--- PDF JavaScript support using mujs (low, risky)
-
 -- Integration with web-based backup/viewer system (high)
 
 The idea is that users could easily backup their PDFs on the server. They would
@@ -151,23 +128,11 @@ view them on the web. Basically it would be private Scribd for PDFs only. The
 web service would have to be paid (since on-line storage is rather expensive)
 but there would be free accounts (with quota, similar to how Dropbox works).
 
--- Direct integration with Dropbox (high)
-
-They have APIs. Being able to list, download and read PDF files in Dropbox
-account. Not sure if that makes sense, though, since having Dropbox pretty much
-means the files are locally anyway.
-
--- Integration with Scribd (high)
-
-As an alternative (or addition) to Dropbox integration. Being able to search for
-PDF documents on Scribd and download/view them in Sumatra. They have APIs
-(http://www.scribd.com/developers).
-
 -- Document library management (high)
 
-Similar to how e.g. Picasa manages photos or iTunes anages mp3 files.
+Similar to how e.g. Picasa manages photos or iTunes manages mp3 files.
 
-User would tell us which directories contain PDF and oher supported files
+User would tell us which directories contain PDF and other supported files
 (or, on Win 7, we could use windows search or scan the whole hard-drive to
 automatically find all files). We would index the files (their filenames, metadata,
 maybe extract text for full-text search), build thumbnails and allow efficient
@@ -175,21 +140,6 @@ browsing/searching those files.
 
 This would be a good feature for those who have large collections of PDFs
 (compared to using file explorer or open file dialog for locating the file).
-
--- Native client version (super high)
-
-https://developers.google.com/native-client/.
-There are some challenges (need completely custom UI, fonts aren't as easy
-to get at, CHM support would be much harder). The upside is we would have
-no-install, browser hosted (well, at least in Chrome) app.
-
--- mac version (super high)
-
--- use SafeInt (low)
-
-We have quite a few places where we do integer overflow checks. Explore
-doing that in a systematic way, using SafeInt (http://safeint.codeplex.com/) or
-similar library (or extract useful stuff for us from SafeInt)
 
 -- use pdfium (high)
 
@@ -203,6 +153,6 @@ another engine). So that's the downside.
 I've briefly looked at the code and it might have some benefits over mupdf:
 * they have hooks for form editing (which should make implementing this much
   easier)
-* their priting code looks more efficient
+* their printing code looks more efficient
 * they probably support some of the more advanced PDF features
 * they are probably faster and (thanks to Google) more secure

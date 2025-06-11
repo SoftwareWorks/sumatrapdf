@@ -1,3 +1,25 @@
+// Copyright (C) 2004-2025 Artifex Software, Inc.
+//
+// This file is part of MuPDF.
+//
+// MuPDF is free software: you can redistribute it and/or modify it under the
+// terms of the GNU Affero General Public License as published by the Free
+// Software Foundation, either version 3 of the License, or (at your option)
+// any later version.
+//
+// MuPDF is distributed in the hope that it will be useful, but WITHOUT ANY
+// WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+// FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+// details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with MuPDF. If not, see <https://www.gnu.org/licenses/agpl-3.0.en.html>
+//
+// Alternative licensing terms are available from the licensor.
+// For commercial licensing, see <https://www.artifex.com/> or contact
+// Artifex Software, Inc., 39 Mesa Street, Suite 108A, San Francisco,
+// CA 94129, USA, for further information.
+
 /*
  * PDF cleaning tool: general purpose pdf syntax washer.
  *
@@ -9,15 +31,14 @@
  * TODO: linearize document for fast web view
  */
 
+#include "mupdf/fitz.h"
 #include "mupdf/pdf.h"
 
-typedef struct globals_s
-{
-	pdf_document *doc;
-	fz_context *ctx;
-} globals;
+#include <string.h>
+#include <stdlib.h>
+#include <stdio.h>
 
-static void usage(void)
+static int usage(void)
 {
 	fprintf(stderr,
 		"usage: mutool clean [options] input.pdf [output.pdf] [pages]\n"
@@ -25,228 +46,45 @@ static void usage(void)
 		"\t-g\tgarbage collect unused objects\n"
 		"\t-gg\tin addition to -g compact xref table\n"
 		"\t-ggg\tin addition to -gg merge duplicate objects\n"
-		"\t-s\tclean content streams\n"
-		"\t-d\tdecompress all streams\n"
-		"\t-l\tlinearize PDF\n"
-		"\t-i\ttoggle decompression of image streams\n"
-		"\t-f\ttoggle decompression of font streams\n"
+		"\t-gggg\tin addition to -ggg check streams for duplication\n"
+		"\t-l\tlinearize PDF (no longer supported!)\n"
+		"\t-D\tsave file without encryption\n"
+		"\t-E -\tsave file with new encryption (rc4-40, rc4-128, aes-128, or aes-256)\n"
+		"\t-O -\towner password (only if encrypting)\n"
+		"\t-U -\tuser password (only if encrypting)\n"
+		"\t-P -\tpermission flags (only if encrypting)\n"
 		"\t-a\tascii hex encode binary streams\n"
-		"\tpages\tcomma separated list of ranges\n");
-	exit(1);
+		"\t-d\tdecompress streams\n"
+		"\t-z\tdeflate uncompressed streams\n"
+		"\t-e -\tcompression \"effort\" (0 = default, 1 = min, 100 = max)\n"
+		"\t-f\tcompress font streams\n"
+		"\t-i\tcompress image streams\n"
+		"\t-c\tclean content streams\n"
+		"\t-s\tsanitize content streams\n"
+		"\t-t\tcompact object syntax\n"
+		"\t-tt\tindented object syntax\n"
+		"\t-L\twrite object labels\n"
+		"\t-A\tcreate appearance streams for annotations\n"
+		"\t-AA\trecreate appearance streams for annotations\n"
+		"\t-m\tpreserve metadata\n"
+		"\t-S\tsubset fonts if possible [EXPERIMENTAL!]\n"
+		"\t-Z\tuse objstms if possible for extra compression\n"
+		"\t--{color,gray,bitonal}-{,lossy-,lossless-}image-subsample-method -\n\t\taverage, bicubic\n"
+		"\t--{color,gray,bitonal}-{,lossy-,lossless-}image-subsample-dpi -[,-]\n\t\tDPI at which to subsample [+ target dpi]\n"
+		"\t--{color,gray,bitonal}-{,lossy-,lossless-}image-recompress-method -[:quality]\n\t\tnever, same, lossless, jpeg, j2k, fax, jbig2\n"
+		"\t--structure=keep|drop\tKeep or drop the structure tree\n"
+		"\tpages\tcomma separated list of page numbers and ranges\n"
+		);
+	return 1;
 }
 
-static int
-string_in_names_list(pdf_obj *p, pdf_obj *names_list)
+static int encrypt_method_from_string(const char *name)
 {
-	int n = pdf_array_len(names_list);
-	int i;
-	char *str = pdf_to_str_buf(p);
-
-	for (i = 0; i < n ; i += 2)
-	{
-		if (!strcmp(pdf_to_str_buf(pdf_array_get(names_list, i)), str))
-			return 1;
-	}
-	return 0;
-}
-
-/*
- * Recreate page tree to only retain specified pages.
- */
-
-static void retainpage(pdf_document *doc, pdf_obj *parent, pdf_obj *kids, int page)
-{
-	pdf_obj *pageref = pdf_lookup_page_obj(doc, page-1);
-	pdf_obj *pageobj = pdf_resolve_indirect(pageref);
-
-	pdf_dict_puts(pageobj, "Parent", parent);
-
-	/* Store page object in new kids array */
-	pdf_array_push(kids, pageref);
-}
-
-static void retainpages(globals *glo, int argc, char **argv)
-{
-	pdf_obj *oldroot, *root, *pages, *kids, *countobj, *parent, *olddests;
-	pdf_document *doc = glo->doc;
-	int argidx = 0;
-	pdf_obj *names_list = NULL;
-	int pagecount;
-	int i;
-
-	/* Keep only pages/type and (reduced) dest entries to avoid
-	 * references to unretained pages */
-	oldroot = pdf_dict_gets(pdf_trailer(doc), "Root");
-	pages = pdf_dict_gets(oldroot, "Pages");
-	olddests = pdf_load_name_tree(doc, "Dests");
-
-	root = pdf_new_dict(doc, 2);
-	pdf_dict_puts(root, "Type", pdf_dict_gets(oldroot, "Type"));
-	pdf_dict_puts(root, "Pages", pdf_dict_gets(oldroot, "Pages"));
-
-	pdf_update_object(doc, pdf_to_num(oldroot), root);
-
-	pdf_drop_obj(root);
-
-	/* Create a new kids array with only the pages we want to keep */
-	parent = pdf_new_indirect(doc, pdf_to_num(pages), pdf_to_gen(pages));
-	kids = pdf_new_array(doc, 1);
-
-	/* Retain pages specified */
-	while (argc - argidx)
-	{
-		int page, spage, epage;
-		char *spec, *dash;
-		char *pagelist = argv[argidx];
-
-		pagecount = pdf_count_pages(doc);
-		spec = fz_strsep(&pagelist, ",");
-		while (spec)
-		{
-			dash = strchr(spec, '-');
-
-			if (dash == spec)
-				spage = epage = pagecount;
-			else
-				spage = epage = atoi(spec);
-
-			if (dash)
-			{
-				if (strlen(dash) > 1)
-					epage = atoi(dash + 1);
-				else
-					epage = pagecount;
-			}
-
-			spage = fz_clampi(spage, 1, pagecount);
-			epage = fz_clampi(epage, 1, pagecount);
-
-			if (spage < epage)
-				for (page = spage; page <= epage; ++page)
-					retainpage(doc, parent, kids, page);
-			else
-				for (page = spage; page >= epage; --page)
-					retainpage(doc, parent, kids, page);
-
-			spec = fz_strsep(&pagelist, ",");
-		}
-
-		argidx++;
-	}
-
-	pdf_drop_obj(parent);
-
-	/* Update page count and kids array */
-	countobj = pdf_new_int(doc, pdf_array_len(kids));
-	pdf_dict_puts(pages, "Count", countobj);
-	pdf_drop_obj(countobj);
-	pdf_dict_puts(pages, "Kids", kids);
-	pdf_drop_obj(kids);
-
-	/* Also preserve the (partial) Dests name tree */
-	if (olddests)
-	{
-		pdf_obj *names = pdf_new_dict(doc, 1);
-		pdf_obj *dests = pdf_new_dict(doc, 1);
-		int len = pdf_dict_len(olddests);
-
-		names_list = pdf_new_array(doc, 32);
-
-		for (i = 0; i < len; i++)
-		{
-			pdf_obj *key = pdf_dict_get_key(olddests, i);
-			pdf_obj *val = pdf_dict_get_val(olddests, i);
-			pdf_obj *dest = pdf_dict_gets(val, "D");
-
-			dest = pdf_array_get(dest ? dest : val, 0);
-			if (pdf_array_contains(pdf_dict_gets(pages, "Kids"), dest))
-			{
-				pdf_obj *key_str = pdf_new_string(doc, pdf_to_name(key), strlen(pdf_to_name(key)));
-				pdf_array_push(names_list, key_str);
-				pdf_array_push(names_list, val);
-				pdf_drop_obj(key_str);
-			}
-		}
-
-		root = pdf_dict_gets(pdf_trailer(doc), "Root");
-		pdf_dict_puts(dests, "Names", names_list);
-		pdf_dict_puts(names, "Dests", dests);
-		pdf_dict_puts(root, "Names", names);
-
-		pdf_drop_obj(names);
-		pdf_drop_obj(dests);
-		pdf_drop_obj(names_list);
-		pdf_drop_obj(olddests);
-	}
-
-	/* Force the next call to pdf_count_pages to recount */
-	glo->doc->page_count = 0;
-
-	/* Edit each pages /Annot list to remove any links that point to
-	 * nowhere. */
-	pagecount = pdf_count_pages(doc);
-	for (i = 0; i < pagecount; i++)
-	{
-		pdf_obj *pageref = pdf_lookup_page_obj(doc, i);
-		pdf_obj *pageobj = pdf_resolve_indirect(pageref);
-
-		pdf_obj *annots = pdf_dict_gets(pageobj, "Annots");
-
-		int len = pdf_array_len(annots);
-		int j;
-
-		for (j = 0; j < len; j++)
-		{
-			pdf_obj *o = pdf_array_get(annots, j);
-			pdf_obj *p;
-
-			if (strcmp(pdf_to_name(pdf_dict_gets(o, "Subtype")), "Link"))
-				continue;
-
-			p = pdf_dict_gets(o, "A");
-			if (strcmp(pdf_to_name(pdf_dict_gets(p, "S")), "GoTo"))
-				continue;
-
-			if (string_in_names_list(pdf_dict_gets(p, "D"), names_list))
-				continue;
-
-			/* FIXME: Should probably look at Next too */
-
-			/* Remove this annotation */
-			pdf_array_delete(annots, j);
-			j--;
-		}
-	}
-}
-
-void pdfclean_clean(fz_context *ctx, char *infile, char *outfile, char *password, fz_write_options *opts, char *argv[], int argc)
-{
-	globals glo = { 0 };
-
-	glo.ctx = ctx;
-
-	fz_try(ctx)
-	{
-		glo.doc = pdf_open_document_no_run(ctx, infile);
-		if (pdf_needs_password(glo.doc))
-			if (!pdf_authenticate_password(glo.doc, password))
-				fz_throw(glo.ctx, FZ_ERROR_GENERIC, "cannot authenticate password: %s", infile);
-
-		/* Only retain the specified subset of the pages */
-		if (argc)
-			retainpages(&glo, argc, argv);
-
-		pdf_write_document(glo.doc, outfile, opts);
-	}
-	fz_always(ctx)
-	{
-		pdf_close_document(glo.doc);
-	}
-	fz_catch(ctx)
-	{
-		if (opts && opts->errors)
-			*opts->errors = *opts->errors+1;
-	}
+	if (!strcmp(name, "rc4-40")) return PDF_ENCRYPT_RC4_40;
+	if (!strcmp(name, "rc4-128")) return PDF_ENCRYPT_RC4_128;
+	if (!strcmp(name, "aes-128")) return PDF_ENCRYPT_AES_128;
+	if (!strcmp(name, "aes-256")) return PDF_ENCRYPT_AES_256;
+	return PDF_ENCRYPT_UNKNOWN;
 }
 
 int pdfclean_main(int argc, char **argv)
@@ -255,44 +93,179 @@ int pdfclean_main(int argc, char **argv)
 	char *outfile = "out.pdf";
 	char *password = "";
 	int c;
-	fz_write_options opts;
+	int pretty = -1;
+	pdf_clean_options opts = { 0 };
 	int errors = 0;
 	fz_context *ctx;
+	int structure;
+	const fz_getopt_long_options longopts[] =
+	{
+		{ "color-lossy-image-subsample-method=average|bicubic", &opts.image.color_lossy_image_subsample_method, (void *)1 },
+		{ "color-lossless-image-subsample-method=average|bicubic", &opts.image.color_lossless_image_subsample_method, (void *)2 },
+		{ "color-image-subsample-method=average|bicubic", &opts.image.color_lossy_image_subsample_method, (void *)3 },
+		{ "color-lossy-image-subsample-dpi:", &opts.image.color_lossy_image_subsample_threshold, (void *)4 },
+		{ "color-lossless-image-subsample-dpi:", &opts.image.color_lossless_image_subsample_threshold, (void *)5 },
+		{ "color-image-subsample-dpi:", &opts.image.color_lossless_image_subsample_threshold, (void *)6 },
+		{ "color-lossy-image-recompress-method=never|same|lossless|jpeg:|j2k:|fax|jbig2", &opts.image.color_lossy_image_recompress_method, (void *)7 },
+		{ "color-lossless-image-recompress-method=never|same|lossless|jpeg:|j2k:|fax|jbig2", &opts.image.color_lossless_image_recompress_method, (void *)8 },
+		{ "color-image-recompress-method=never|same|lossless|jpeg:|j2k:|fax|jbig2", &opts.image.color_lossless_image_recompress_method, (void *)9 },
 
-	opts.do_incremental = 0;
-	opts.do_garbage = 0;
-	opts.do_expand = 0;
-	opts.do_ascii = 0;
-	opts.do_linear = 0;
-	opts.continue_on_error = 1;
-	opts.errors = &errors;
-	opts.do_clean = 0;
+		{ "gray-lossy-image-subsample-method=average|bicubic", &opts.image.gray_lossy_image_subsample_method, (void *)10 },
+		{ "gray-lossless-image-subsample-method=average|bicubic", &opts.image.gray_lossless_image_subsample_method, (void *)11 },
+		{ "gray-image-subsample-method=average|bicubic", &opts.image.gray_lossy_image_subsample_method, (void *)12 },
+		{ "gray-lossy-image-subsample-dpi:", &opts.image.gray_lossy_image_subsample_threshold, (void *)13 },
+		{ "gray-lossless-image-subsample-dpi:", &opts.image.gray_lossless_image_subsample_threshold, (void *)14 },
+		{ "gray-image-subsample-dpi:", &opts.image.gray_lossless_image_subsample_threshold, (void *)15 },
+		{ "gray-lossy-image-recompress-method=never|same|lossless|jpeg:|j2k:|fax|jbig2", &opts.image.gray_lossy_image_recompress_method, (void *)16 },
+		{ "gray-lossless-image-recompress-method=never|same|lossless|jpeg:|j2k:|fax|jbig2", &opts.image.gray_lossless_image_recompress_method, (void *)17 },
+		{ "gray-image-recompress-method=never|same|lossless|jpeg:|j2k:|fax|jbig2", &opts.image.gray_lossless_image_recompress_method, (void *)18 },
 
-	while ((c = fz_getopt(argc, argv, "adfgilp:s")) != -1)
+		{ "bitonal-image-subsample-method=average|bicubic", &opts.image.bitonal_image_subsample_method, (void *)19 },
+		{ "bitonal-image-subsample-dpi:", &opts.image.bitonal_image_subsample_threshold, (void *)20 },
+		{ "bitonal-image-recompress-method=never|same|lossless|jpeg:|j2k:|fax|jbig2", &opts.image.bitonal_image_recompress_method, (void *)21 },
+
+		{ "structure=drop|keep", &structure, (void *)22 },
+
+		{ NULL, NULL, NULL }
+	};
+
+
+	opts.write = pdf_default_write_options;
+	opts.write.dont_regenerate_id = 1;
+
+	while ((c = fz_getopt_long(argc, argv, "ade:fgilmp:stczDAE:LO:U:P:SZ", longopts)) != -1)
 	{
 		switch (c)
 		{
 		case 'p': password = fz_optarg; break;
-		case 'g': opts.do_garbage ++; break;
-		case 'd': opts.do_expand ^= fz_expand_all; break;
-		case 'f': opts.do_expand ^= fz_expand_fonts; break;
-		case 'i': opts.do_expand ^= fz_expand_images; break;
-		case 'l': opts.do_linear ++; break;
-		case 'a': opts.do_ascii ++; break;
-		case 's': opts.do_clean ++; break;
-		default: usage(); break;
+
+		case 'd': opts.write.do_decompress += 1; break;
+		case 'z': opts.write.do_compress += 1; break;
+		case 'f': opts.write.do_compress_fonts += 1; break;
+		case 'i': opts.write.do_compress_images += 1; break;
+		case 'a': opts.write.do_ascii += 1; break;
+		case 'e': opts.write.compression_effort = fz_atoi(fz_optarg); break;
+		case 'g': opts.write.do_garbage += 1; break;
+		case 'l': opts.write.do_linear += 1; break;
+		case 'c': opts.write.do_clean += 1; break;
+		case 's': opts.write.do_sanitize += 1; break;
+		case 't': pretty = (pretty < 0) ? 0 : 1; break;
+		case 'A': opts.write.do_appearance += 1; break;
+		case 'L': opts.write.do_labels = 1; break;
+
+		case 'D': opts.write.do_encrypt = PDF_ENCRYPT_NONE; break;
+		case 'E': opts.write.do_encrypt = encrypt_method_from_string(fz_optarg); break;
+		case 'P': opts.write.permissions = fz_atoi(fz_optarg); break;
+		case 'O': fz_strlcpy(opts.write.opwd_utf8, fz_optarg, sizeof opts.write.opwd_utf8); break;
+		case 'U': fz_strlcpy(opts.write.upwd_utf8, fz_optarg, sizeof opts.write.upwd_utf8); break;
+		case 'm': opts.write.do_preserve_metadata = 1; break;
+		case 'S': opts.subset_fonts = 1; break;
+		case 'Z': opts.write.do_use_objstms = 1; break;
+		case 0:
+		{
+			switch((int)(intptr_t)fz_optlong->opaque)
+			{
+			default:
+			case 0:
+				assert(!"Never happens");
+				break;
+
+			case 1: /* color-lossy-image-subsample-method */
+			case 2: /* color-lossless-image-subsample-method */
+				break;
+			case 3: /* color-image-subsample-method */
+				opts.image.color_lossless_image_subsample_method = opts.image.color_lossy_image_subsample_method;
+				break;
+			case 4: /* color-lossy-image-subsample-dpi */
+				opts.image.color_lossy_image_subsample_to = (fz_optarg ? fz_atoi(fz_optarg) : opts.image.color_lossy_image_subsample_threshold);
+				break;
+			case 5: /* color-lossless-image-subsample-dpi */
+				opts.image.color_lossless_image_subsample_to = (fz_optarg ? fz_atoi(fz_optarg) : opts.image.color_lossless_image_subsample_threshold);
+				break;
+			case 6: /* color-image-subsample-dpi */
+				opts.image.color_lossless_image_subsample_to = (fz_optarg ? fz_atoi(fz_optarg) : opts.image.color_lossless_image_subsample_threshold);
+				opts.image.color_lossy_image_subsample_threshold = opts.image.color_lossless_image_subsample_threshold;
+				opts.image.color_lossy_image_subsample_to = opts.image.color_lossless_image_subsample_to;
+				break;
+			case 7: /* color-lossy-image-recompress-method */
+				opts.image.color_lossless_image_recompress_quality = fz_optarg;
+				break;
+			case 8: /* color-lossless-image-recompress-method */
+				opts.image.color_lossy_image_recompress_quality = fz_optarg;
+				break;
+			case 9: /* color-image-recompress-method */
+				opts.image.color_lossless_image_recompress_quality = fz_optarg;
+				opts.image.color_lossy_image_recompress_method = opts.image.color_lossless_image_recompress_method;
+				opts.image.color_lossy_image_recompress_quality = opts.image.color_lossless_image_recompress_quality;
+				break;
+
+			case 10: /* gray-lossy-image-subsample-method */
+			case 11: /* gray-lossless-image-subsample-method */
+				break;
+			case 12: /* gray-image-subsample-method */
+				opts.image.gray_lossless_image_subsample_method = opts.image.gray_lossy_image_subsample_method;
+				break;
+			case 13: /* gray-lossy-image-subsample-dpi */
+				opts.image.gray_lossy_image_subsample_to = (fz_optarg ? fz_atoi(fz_optarg) : opts.image.gray_lossless_image_subsample_threshold);
+				break;
+			case 14: /* gray-lossless-image-subsample-dpi */
+				opts.image.gray_lossless_image_subsample_to = (fz_optarg ? fz_atoi(fz_optarg) : opts.image.gray_lossless_image_subsample_threshold);
+				break;
+			case 15: /* gray-image-subsample-dpi */
+				opts.image.gray_lossless_image_subsample_to = (fz_optarg ? fz_atoi(fz_optarg) : opts.image.gray_lossy_image_subsample_threshold);
+				opts.image.gray_lossy_image_subsample_threshold = opts.image.gray_lossless_image_subsample_threshold;
+				opts.image.gray_lossy_image_subsample_to = opts.image.gray_lossless_image_subsample_to;
+				break;
+			case 16: /* gray-lossy-image-recompress-method */
+				opts.image.gray_lossless_image_recompress_quality = fz_optarg;
+				break;
+			case 17: /* gray-lossless-image-recompress-method */
+				opts.image.gray_lossy_image_recompress_quality = fz_optarg;
+				break;
+			case 18: /* gray-image-recompress-method */
+				opts.image.gray_lossless_image_recompress_quality = fz_optarg;
+				opts.image.gray_lossy_image_recompress_method = opts.image.gray_lossless_image_recompress_method;
+				opts.image.gray_lossy_image_recompress_quality = opts.image.gray_lossless_image_recompress_quality;
+				break;
+
+			case 19: /* bitonal-image-subsample-method */
+				break;
+			case 20: /* bitonal-image-subsample-dpi */
+				opts.image.bitonal_image_subsample_to = (fz_optarg ? fz_atoi(fz_optarg) : opts.image.bitonal_image_subsample_threshold);
+				break;
+			case 21: /* bitonal-image-recompress-method */
+				opts.image.bitonal_image_recompress_quality = fz_optarg;
+				if (fz_optarg)
+					return usage();
+				break;
+			case 22: /* structure */
+				opts.structure = structure; /* Allow for int/enum size mismatch. */
+				break;
+			}
+			break;
+		}
+		default: return usage();
 		}
 	}
 
+	if (pretty < 0)
+	{
+		if ((opts.write.do_ascii || opts.write.do_decompress) && !opts.write.do_compress)
+			pretty = 1;
+		else
+			pretty = 0;
+	}
+	opts.write.do_pretty = pretty;
+
 	if (argc - fz_optind < 1)
-		usage();
+		return usage();
 
 	infile = argv[fz_optind++];
 
 	if (argc - fz_optind > 0 &&
 		(strstr(argv[fz_optind], ".pdf") || strstr(argv[fz_optind], ".PDF")))
 	{
-		outfile = argv[fz_optind++];
+		outfile = fz_optpath(argv[fz_optind++]);
 	}
 
 	ctx = fz_new_context(NULL, NULL, FZ_STORE_UNLIMITED);
@@ -302,15 +275,19 @@ int pdfclean_main(int argc, char **argv)
 		exit(1);
 	}
 
+	if (opts.write.do_compress > 1)
+		fz_warn(ctx, "Brotli compression is currently non-standard and experimental. Files may not be readable in other software.");
+
 	fz_try(ctx)
 	{
-		pdfclean_clean(ctx, infile, outfile, password, &opts, &argv[fz_optind], argc - fz_optind);
+		pdf_clean_file(ctx, infile, outfile, password, &opts, argc - fz_optind, &argv[fz_optind]);
 	}
 	fz_catch(ctx)
 	{
+		fz_report_error(ctx);
 		errors++;
 	}
-	fz_free_context(ctx);
+	fz_drop_context(ctx);
 
-	return errors == 0;
+	return errors != 0;
 }

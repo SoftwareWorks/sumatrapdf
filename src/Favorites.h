@@ -1,4 +1,4 @@
-/* Copyright 2018 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2022 the SumatraPDF project authors (see AUTHORS file).
    License: GPLv3 */
 
 /*
@@ -12,37 +12,22 @@ Favorites are accurate to a page - it's simple and should be good enough
 for the user.
 
 A favorite is identified by a (mandatory) page number and (optional) name
-(provided by the user) and page label (from BaseEngine::GetPageLabel).
+(provided by the user) and page label (from EngineBase::GetPageLabel).
 
 Favorites do not remember presentation settings like zoom or viewing mode -
 they are for navigation only. Presentation settings are remembered on a
 per-file basis in FileHistory.
 */
 
-// Favorites is a convenience interface into gFileHistory
-class Favorites {
-    size_t idxCache = (size_t)-1;
-
-  public:
-    Favorites() {}
-
-    Favorite* GetByMenuId(int menuId, DisplayState** dsOut = nullptr);
-    void ResetMenuIds();
-    DisplayState* GetFavByFilePath(const WCHAR* filePath);
-    DisplayState* GetByFavorite(Favorite* fn);
-    bool IsPageInFavorites(const WCHAR* filePath, int pageNo);
-    void AddOrReplace(const WCHAR* filePath, int pageNo, const WCHAR* name, const WCHAR* pageLabel = nullptr);
-    void Remove(const WCHAR* filePath, int pageNo);
-    void RemoveAllForFile(const WCHAR* filePath);
-};
-
-void AddFavorite(WindowInfo* win);
-void DelFavorite(WindowInfo* win);
-void RebuildFavMenu(WindowInfo* win, HMENU menu);
-void CreateFavorites(WindowInfo* win);
-void ToggleFavorites(WindowInfo* win);
-void PopulateFavTreeIfNeeded(WindowInfo* win);
-void RememberFavTreeExpansionStateForAllWindows();
-void GoToFavoriteByMenuId(WindowInfo* win, int wmId);
-void UpdateFavoritesTree(WindowInfo* win);
+bool HasFavorites();
+void AddFavoriteWithLabelAndName(MainWindow* win, int pageNo, const char* pageLabel, const char* nameIn);
+void AddFavoriteForCurrentPage(MainWindow* win);
+void DelFavorite(const char* filePath, int pageNo);
+void RebuildFavMenu(MainWindow* win, HMENU menu);
+void CreateFavorites(MainWindow* win);
+void ToggleFavorites(MainWindow* win);
+void PopulateFavTreeIfNeeded(MainWindow* win);
+void GoToFavoriteByMenuId(MainWindow* win, int cmdId);
+void UpdateFavoritesTree(MainWindow* win);
 void UpdateFavoritesTreeForAllWindows();
+bool IsPageInFavorites(const char* filePath, int pageNo);

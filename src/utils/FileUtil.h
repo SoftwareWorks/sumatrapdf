@@ -1,77 +1,91 @@
-/* Copyright 2018 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2022 the SumatraPDF project authors (see AUTHORS file).
    License: Simplified BSD (see COPYING.BSD) */
 
 namespace path {
 
 bool IsSep(char c);
 
-const char* GetBaseName(const char* path);
-const char* GetExt(const char* path);
+TempStr GetExtTemp(const char* path);
+TempStr GetBaseNameTemp(const char* path);
+TempStr GetPathNoExtTemp(const char* path);
 
-char* JoinUtf(const char* path, const char* fileName, Allocator* allocator);
+TempStr GetDirTemp(const char* path);
+TempWStr GetDirTemp(const WCHAR* path);
 
-#if OS_WIN
-bool IsSep(WCHAR c);
-const WCHAR* GetBaseName(const WCHAR* path);
-const WCHAR* GetExt(const WCHAR* path);
+char* Join(Allocator* allocator, const char* path, const char* fileName);
+char* Join(const char* path, const char* fileName);
+WCHAR* Join(const WCHAR* path, const WCHAR* fileName, const WCHAR* fileName2 = nullptr);
+TempStr JoinTemp(const char* path, const char* fileName, const char* fileName2 = nullptr);
+TempWStr JoinTemp(const WCHAR* path, const WCHAR* fileName, const WCHAR* fileName2 = nullptr);
 
-WCHAR* Normalize(const WCHAR* path);
-WCHAR* ShortPath(const WCHAR* path);
-bool IsSame(const WCHAR* path1, const WCHAR* path2);
-bool HasVariableDriveLetter(const WCHAR* path);
-bool IsOnFixedDrive(const WCHAR* path);
-bool Match(const WCHAR* path, const WCHAR* filter);
-bool IsAbsolute(const WCHAR* path);
+bool IsDirectory(const char*);
 
-WCHAR* GetDir(const WCHAR* path);
-WCHAR* Join(const WCHAR* path, const WCHAR* fileName);
+TempStr NormalizeTemp(const char* path);
 
-WCHAR* GetTempPath(const WCHAR* filePrefix = nullptr);
-WCHAR* GetPathOfFileInAppDir(const WCHAR* fileName = nullptr);
-#endif
+TempStr ShortPathTemp(const char* pathA);
+bool IsSame(const char* path1, const char* path2);
+bool HasVariableDriveLetter(const char* path);
+bool IsOnFixedDrive(const char* path);
+bool IsAbsolute(const char* path);
+
+bool Match(const char* path, const char* filter);
+
+enum Type {
+    None, // path doesn't exist
+    File,
+    Dir,
+};
+Type GetType(const char* path);
+
 } // namespace path
+
+TempStr GetTempFilePathTemp(const char* filePrefix = nullptr);
+TempStr GetPathInExeDirTemp(const char* fileName = nullptr);
 
 namespace file {
 
+bool Exists(const char* path);
+
 FILE* OpenFILE(const char* path);
-char* ReadFileWithAllocator(const char* path, size_t* fileSizeOut, Allocator* allocator);
-bool WriteFile(const char* path, const void* data, size_t dataLen);
-OwnedData ReadFile(const char* path);
+HANDLE OpenReadOnly(const char*);
+ByteSlice ReadFileWithAllocator(const char* path, Allocator*);
+ByteSlice ReadFile(const char* path);
+int ReadN(const char* path, char* buf, size_t toRead);
+bool WriteFile(const char* path, const ByteSlice&);
 
-#if OS_WIN
-FILE* OpenFILE(const WCHAR* path);
-bool Exists(const WCHAR* path);
-char* ReadFileWithAllocator(const WCHAR* path, size_t* fileSizeOut, Allocator* allocator);
-OwnedData ReadFile(const WCHAR* path);
-bool ReadN(const WCHAR* path, char* buf, size_t toRead);
-bool WriteFile(const WCHAR* path, const void* data, size_t dataLen);
-int64_t GetSize(const WCHAR* path);
-bool Delete(const WCHAR* path);
-FILETIME GetModificationTime(const WCHAR* path);
-bool SetModificationTime(const WCHAR* path, FILETIME lastMod);
-bool StartsWithN(const WCHAR* path, const char* magicNumber, size_t len);
-bool StartsWith(const WCHAR* path, const char* magicNumber);
-int GetZoneIdentifier(const WCHAR* path);
-bool SetZoneIdentifier(const WCHAR* path, int zoneId = URLZONE_INTERNET);
+i64 GetSize(HANDLE h);
+i64 GetSize(const char*);
+bool Delete(const char* path);
+bool DeleteFileToTrash(const char* path);
 
-HANDLE OpenReadOnly(const WCHAR* path);
-#endif
+FILETIME GetModificationTime(const char* path);
+
+bool SetModificationTime(const char* path, FILETIME lastMod);
+
+DWORD GetAttributes(const char* path);
+bool SetAttributes(const char* path, DWORD attrs);
+
+bool StartsWithN(const char* path, const char* s, size_t len);
+bool StartsWith(const char* path, const char* s);
+
+int GetZoneIdentifier(const char* path);
+bool SetZoneIdentifier(const char* path, int zoneId = URLZONE_INTERNET);
+bool DeleteZoneIdentifier(const char* path);
+
+bool Copy(const char* dst, const char* src, bool dontOverwrite);
+
 } // namespace file
 
 namespace dir {
 
-#if OS_WIN
 bool Exists(const WCHAR* dir);
-bool Create(const WCHAR* dir);
-bool CreateAll(const WCHAR* dir);
-bool RemoveAll(const WCHAR* dir);
-#endif
+bool Exists(const char*);
+
+bool Create(const char* dir);
+bool CreateForFile(const char* path);
+bool CreateAll(const char* dir);
+bool RemoveAll(const char* dir);
+
 } // namespace dir
 
-#if OS_WIN
-inline bool FileTimeEq(const FILETIME& a, const FILETIME& b) {
-    return a.dwLowDateTime == b.dwLowDateTime && a.dwHighDateTime == b.dwHighDateTime;
-}
-
-HINSTANCE GetInstance();
-#endif
+bool FileTimeEq(const FILETIME& a, const FILETIME& b);

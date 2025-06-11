@@ -1,8 +1,7 @@
-/* Copyright 2018 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2022 the SumatraPDF project authors (see AUTHORS file).
    License: Simplified BSD (see COPYING.BSD) */
 
-class FrameRateWnd {
-  public:
+struct FrameRateWnd {
     FrameRateWnd() = default;
     ~FrameRateWnd();
 

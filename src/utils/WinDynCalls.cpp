@@ -1,9 +1,10 @@
-/* Copyright 2018 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2022 the SumatraPDF project authors (see AUTHORS file).
 License: Simplified BSD (see COPYING.BSD) */
 
-#include "BaseUtil.h"
-#include "WinDynCalls.h"
-#include "WinUtil.h"
+#include "utils/BaseUtil.h"
+#include "utils/ScopedWin.h"
+#include "utils/WinUtil.h"
+#include "utils/WinDynCalls.h"
 
 #define API_DECLARATION(name) Sig_##name Dyn##name = nullptr;
 
@@ -11,10 +12,8 @@ KERNEL32_API_LIST(API_DECLARATION)
 NTDLL_API_LIST(API_DECLARATION)
 UXTHEME_API_LIST(API_DECLARATION)
 NORMALIZ_API_LIST(API_DECLARATION)
-KTMW32_API_LIST(API_DECLARATION)
 USER32_API_LIST(API_DECLARATION)
 DWMAPI_API_LIST(API_DECLARATION)
-UIA_API_LIST(API_DECLARATION)
 DBGHELP_API_LIST(API_DECLARATION)
 
 #undef API_DECLARATION
@@ -22,12 +21,13 @@ DBGHELP_API_LIST(API_DECLARATION)
 #define API_LOAD(name) Dyn##name = (Sig_##name)GetProcAddress(h, #name);
 
 // Loads a DLL explicitly from the system's library collection
-HMODULE SafeLoadLibrary(const WCHAR* dllName) {
+static HMODULE SafeLoadLibrary(const char* dllNameA) {
     WCHAR dllPath[MAX_PATH];
-    UINT res = GetSystemDirectoryW(dllPath, dimof(dllPath));
+    uint res = GetSystemDirectoryW(dllPath, dimof(dllPath));
     if (!res || res >= dimof(dllPath)) {
         return nullptr;
     }
+    auto dllName = ToWStrTemp(dllNameA);
     BOOL ok = PathAppendW(dllPath, dllName);
     if (!ok) {
         return nullptr;
@@ -36,48 +36,38 @@ HMODULE SafeLoadLibrary(const WCHAR* dllName) {
 }
 
 void InitDynCalls() {
-    HMODULE h = SafeLoadLibrary(L"kernel32.dll");
-    CrashAlwaysIf(!h);
+    HMODULE h = SafeLoadLibrary("kernel32.dll");
+    ReportIf(!h);
     KERNEL32_API_LIST(API_LOAD);
 
-    h = SafeLoadLibrary(L"ntdll.dll");
-    CrashAlwaysIf(!h);
+    h = SafeLoadLibrary("ntdll.dll");
+    ReportIf(!h);
     NTDLL_API_LIST(API_LOAD);
 
-    h = SafeLoadLibrary(L"user32.dll");
-    CrashAlwaysIf(!h);
+    h = SafeLoadLibrary("user32.dll");
+    ReportIf(!h);
     USER32_API_LIST(API_LOAD);
 
-    h = SafeLoadLibrary(L"uxtheme.dll");
+    h = SafeLoadLibrary("uxtheme.dll");
     if (h) {
         UXTHEME_API_LIST(API_LOAD);
     }
 
-    h = SafeLoadLibrary(L"dwmapi.dll");
+    h = SafeLoadLibrary("dwmapi.dll");
     if (h) {
         DWMAPI_API_LIST(API_LOAD);
     }
 
-    h = SafeLoadLibrary(L"normaliz.dll");
+    h = SafeLoadLibrary("normaliz.dll");
     if (h) {
         NORMALIZ_API_LIST(API_LOAD);
-    }
-
-    h = SafeLoadLibrary(L"ktmw32.dll");
-    if (h) {
-        KTMW32_API_LIST(API_LOAD);
-    }
-
-    h = SafeLoadLibrary(L"uiautomationcore.dll");
-    if (h) {
-        UIA_API_LIST(API_LOAD)
     }
 
 #if 0
     WCHAR *dbghelpPath = L"C:\\Program Files (x86)\\Microsoft Visual Studio 10.0\\Team Tools\\Performance Tools\\dbghelp.dll";
     h = LoadLibrary(dbghelpPath);
 #else
-    h = SafeLoadLibrary(L"dbghelp.dll");
+    h = SafeLoadLibrary("dbghelp.dll");
 #endif
     if (h) {
         DBGHELP_API_LIST(API_LOAD)
@@ -117,10 +107,7 @@ BOOL SetGestureConfig(HWND hwnd, DWORD dwReserved, UINT cIDs, PGESTURECONFIG pGe
 namespace theme {
 
 bool IsAppThemed() {
-    if (DynIsAppThemed && DynIsAppThemed()) {
-        return true;
-    }
-    return false;
+    return DynIsAppThemed && DynIsAppThemed();
 }
 
 HTHEME OpenThemeData(HWND hwnd, LPCWSTR pszClassList) {
@@ -186,11 +173,11 @@ HRESULT ExtendFrameIntoClientArea(HWND hwnd, const MARGINS* pMarInset) {
     return DynDwmExtendFrameIntoClientArea(hwnd, pMarInset);
 }
 
-BOOL DefWindowProc_(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam, LRESULT* plResult) {
+BOOL DefaultWindowProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp, LRESULT* plResult) {
     if (!DynDwmDefWindowProc) {
         return FALSE;
     }
-    return DynDwmDefWindowProc(hwnd, msg, wParam, lParam, plResult);
+    return DynDwmDefWindowProc(hwnd, msg, wp, lp, plResult);
 }
 
 HRESULT GetWindowAttribute(HWND hwnd, DWORD dwAttribute, void* pvAttribute, DWORD cbAttribute) {
@@ -199,82 +186,33 @@ HRESULT GetWindowAttribute(HWND hwnd, DWORD dwAttribute, void* pvAttribute, DWOR
     }
     return DynDwmGetWindowAttribute(hwnd, dwAttribute, pvAttribute, cbAttribute);
 }
+
+HRESULT SetWindowAttribute(HWND hwnd, DWORD dwAttribute, void* pvAttribute, DWORD cbAttribute) {
+    if (!DynDwmSetWindowAttribute) {
+        return E_NOTIMPL;
+    }
+    return DynDwmSetWindowAttribute(hwnd, dwAttribute, pvAttribute, cbAttribute);
+}
+
+// https://stackoverflow.com/questions/39261826/change-the-color-of-the-title-bar-caption-of-a-win32-application
+HRESULT SetCaptionColor(HWND hwnd, COLORREF col) {
+    return SetWindowAttribute(hwnd, DWMWINDOWATTRIBUTE::DWMWA_CAPTION_COLOR, &col, sizeof(col));
+}
+
 }; // namespace dwm
 
-namespace uia {
-
-LRESULT ReturnRawElementProvider(HWND hwnd, WPARAM wParam, LPARAM lParam, IRawElementProviderSimple* provider) {
-    if (!DynUiaReturnRawElementProvider) {
-        return 0;
-    }
-    return DynUiaReturnRawElementProvider(hwnd, wParam, lParam, provider);
-}
-
-HRESULT HostProviderFromHwnd(HWND hwnd, IRawElementProviderSimple** pProvider) {
-    if (!DynUiaHostProviderFromHwnd) {
-        return E_NOTIMPL;
-    }
-    return DynUiaHostProviderFromHwnd(hwnd, pProvider);
-}
-
-HRESULT RaiseAutomationEvent(IRawElementProviderSimple* pProvider, EVENTID id) {
-    if (!DynUiaRaiseAutomationEvent) {
-        return E_NOTIMPL;
-    }
-    return DynUiaRaiseAutomationEvent(pProvider, id);
-}
-
-HRESULT RaiseStructureChangedEvent(IRawElementProviderSimple* pProvider, StructureChangeType structureChangeType,
-                                   int* pRuntimeId, int cRuntimeIdLen) {
-    if (!DynUiaRaiseStructureChangedEvent) {
-        return E_NOTIMPL;
-    }
-    return DynUiaRaiseStructureChangedEvent(pProvider, structureChangeType, pRuntimeId, cRuntimeIdLen);
-}
-
-HRESULT GetReservedNotSupportedValue(IUnknown** punkNotSupportedValue) {
-    if (!DynUiaRaiseStructureChangedEvent) {
-        return E_NOTIMPL;
-    }
-    return DynUiaGetReservedNotSupportedValue(punkNotSupportedValue);
-}
-}; // namespace uia
-
-static const WCHAR* dllsToPreload =
-    L"gdiplus.dll\0msimg32.dll\0shlwapi.dll\0urlmon.dll\0version.dll\0windowscodecs.dll\0wininet.dll\0\0";
+static const char* dllsToPreload =
+    "gdiplus.dll\0msimg32.dll\0shlwapi.dll\0urlmon.dll\0version.dll\0windowscodecs.dll\0wininet.dll\0";
 
 // try to mitigate dll hijacking by pre-loading all the dlls that we delay load or might
 // be loaded indirectly
 void NoDllHijacking() {
-    const WCHAR* dll = dllsToPreload;
-    while (*dll) {
+    const char* dll = dllsToPreload;
+    while (dll) {
         SafeLoadLibrary(dll);
-        seqstrings::SkipStr(dll);
+        seqstrings::Next(dll);
     }
 }
-
-// As of the Windows 10.0.17134.0 SDK, this struct and ProcessImageLoadPolicy are defined in winnt.h.
-#if !defined(NTDDI_WIN10_RS4)
-#pragma warning(push)
-//  C4201: nonstandard extension used: nameless struct/union
-#pragma warning(disable : 4201)
-// https://msdn.microsoft.com/en-us/library/windows/desktop/mt706245(v=vs.85).aspx
-typedef struct _PROCESS_MITIGATION_IMAGE_LOAD_POLICY {
-    union {
-        DWORD Flags;
-        struct {
-            DWORD NoRemoteImages : 1;
-            DWORD NoLowMandatoryLabelImages : 1;
-            DWORD PreferSystem32Images : 1;
-            DWORD ReservedFlags : 29;
-        };
-    };
-} PROCESS_MITIGATION_IMAGE_LOAD_POLICY, *PPROCESS_MITIGATION_IMAGE_LOAD_POLICY;
-#pragma warning(pop)
-
-// https://msdn.microsoft.com/en-us/library/windows/desktop/hh871470(v=vs.85).aspx
-constexpr int ProcessImageLoadPolicy = 10;
-#endif
 
 // https://github.com/videolan/vlc/blob/8663561d3f71595ebf116f17279a495b67cac713/bin/winvlc.c#L84
 // https://msdn.microsoft.com/en-us/library/windows/desktop/hh769088(v=vs.85).aspx
@@ -285,7 +223,7 @@ void PrioritizeSystemDirectoriesForDllLoad() {
         return;
     }
     // Only supported since Win 10
-    PROCESS_MITIGATION_IMAGE_LOAD_POLICY m = {0};
+    PROCESS_MITIGATION_IMAGE_LOAD_POLICY m{};
     m.PreferSystem32Images = 1;
     DynSetProcessMitigationPolicy(ProcessImageLoadPolicy, &m, sizeof(m));
     DbgOutLastError();

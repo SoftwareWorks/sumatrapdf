@@ -1,4 +1,29 @@
+// Copyright (C) 2004-2025 Artifex Software, Inc.
+//
+// This file is part of MuPDF.
+//
+// MuPDF is free software: you can redistribute it and/or modify it under the
+// terms of the GNU Affero General Public License as published by the Free
+// Software Foundation, either version 3 of the License, or (at your option)
+// any later version.
+//
+// MuPDF is distributed in the hope that it will be useful, but WITHOUT ANY
+// WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+// FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+// details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with MuPDF. If not, see <https://www.gnu.org/licenses/agpl-3.0.en.html>
+//
+// Alternative licensing terms are available from the licensor.
+// For commercial licensing, see <https://www.artifex.com/> or contact
+// Artifex Software, Inc., 39 Mesa Street, Suite 108A, San Francisco,
+// CA 94129, USA, for further information.
+
 #include "mupdf/fitz.h"
+
+#include <string.h>
+#include <limits.h>
 
 /* Fax G3/G4 decoder */
 
@@ -18,13 +43,11 @@
 <raph> peter came up with this, and it makes sense
 */
 
-typedef struct cfd_node_s cfd_node;
-
-struct cfd_node_s
+typedef struct
 {
 	short val;
 	short nbits;
-};
+} cfd_node;
 
 enum
 {
@@ -150,22 +173,6 @@ static const cfd_node cf_2d_decode[] = {
 	{3,1},{3,1},{3,1},{-2,4},{-1,0},{-1,0},{-1,0},{-1,0},{-1,0},
 	{-1,0},{-1,0},{-1,0},{-1,0},{-1,0},{-1,0},{-1,0},{-1,0},{-1,0},
 	{-1,0},{-1,0},{-1,0},{-1,0},{-1,0},{-1,0},{-1,0},{-1,0},{-3,3}
-};
-
-/* Uncompressed decoding table. */
-static const cfd_node cf_uncompressed_decode[] = {
-	{64,12},{5,6},{4,5},{4,5},{3,4},{3,4},{3,4},{3,4},{2,3},{2,3},
-	{2,3},{2,3},{2,3},{2,3},{2,3},{2,3},{1,2},{1,2},{1,2},{1,2},{1,2},
-	{1,2},{1,2},{1,2},{1,2},{1,2},{1,2},{1,2},{1,2},{1,2},{1,2},{1,2},
-	{0,1},{0,1},{0,1},{0,1},{0,1},{0,1},{0,1},{0,1},{0,1},{0,1},{0,1},
-	{0,1},{0,1},{0,1},{0,1},{0,1},{0,1},{0,1},{0,1},{0,1},{0,1},{0,1},
-	{0,1},{0,1},{0,1},{0,1},{0,1},{0,1},{0,1},{0,1},{0,1},{0,1},
-	{-1,0},{-1,0},{8,6},{9,6},{6,5},{6,5},{7,5},{7,5},{4,4},{4,4},
-	{4,4},{4,4},{5,4},{5,4},{5,4},{5,4},{2,3},{2,3},{2,3},{2,3},{2,3},
-	{2,3},{2,3},{2,3},{3,3},{3,3},{3,3},{3,3},{3,3},{3,3},{3,3},{3,3},
-	{0,2},{0,2},{0,2},{0,2},{0,2},{0,2},{0,2},{0,2},{0,2},{0,2},{0,2},
-	{0,2},{0,2},{0,2},{0,2},{0,2},{1,2},{1,2},{1,2},{1,2},{1,2},{1,2},
-	{1,2},{1,2},{1,2},{1,2},{1,2},{1,2},{1,2},{1,2},{1,2},{1,2}
 };
 
 /* bit magic */
@@ -307,8 +314,6 @@ static inline void setbits(unsigned char *line, int x0, int x1)
 	}
 }
 
-typedef struct fz_faxd_s fz_faxd;
-
 enum
 {
 	STATE_INIT,		/* initial state, optionally waiting for EOL */
@@ -319,9 +324,8 @@ enum
 	STATE_DONE		/* all done */
 };
 
-struct fz_faxd_s
+typedef struct
 {
-	fz_context *ctx;
 	fz_stream *chain;
 
 	int k;
@@ -346,7 +350,7 @@ struct fz_faxd_s
 	unsigned char *rp, *wp;
 
 	unsigned char buffer[4096];
-};
+} fz_faxd;
 
 static inline void eat_bits(fz_faxd *fax, int nbits)
 {
@@ -355,14 +359,14 @@ static inline void eat_bits(fz_faxd *fax, int nbits)
 }
 
 static int
-fill_bits(fz_faxd *fax)
+fill_bits(fz_context *ctx, fz_faxd *fax)
 {
 	/* The longest length of bits we'll ever need is 13. Never read more
 	 * than we need to avoid unnecessary overreading of the end of the
 	 * stream. */
 	while (fax->bidx > (32-13))
 	{
-		int c = fz_read_byte(fax->chain);
+		int c = fz_read_byte(ctx, fax->chain);
 		if (c == EOF)
 			return EOF;
 		fax->bidx -= 8;
@@ -372,7 +376,7 @@ fill_bits(fz_faxd *fax)
 }
 
 static int
-get_code(fz_faxd *fax, const cfd_node *table, int initialbits)
+get_code(fz_context *ctx, fz_faxd *fax, const cfd_node *table, int initialbits)
 {
 	unsigned int word = fax->word;
 	int tidx = word >> (32 - initialbits);
@@ -381,8 +385,8 @@ get_code(fz_faxd *fax, const cfd_node *table, int initialbits)
 
 	if (nbits > initialbits)
 	{
-		int mask = (1 << (32 - initialbits)) - 1;
-		tidx = val + ((word & mask) >> (32 - nbits));
+		int wordmask = (1 << (32 - initialbits)) - 1;
+		tidx = val + ((word & wordmask) >> (32 - nbits));
 		val = table[tidx].val;
 		nbits = initialbits + table[tidx].nbits;
 	}
@@ -402,18 +406,18 @@ dec1d(fz_context *ctx, fz_faxd *fax)
 		fax->a = 0;
 
 	if (fax->c)
-		code = get_code(fax, cf_black_decode, cfd_black_initial_bits);
+		code = get_code(ctx, fax, cf_black_decode, cfd_black_initial_bits);
 	else
-		code = get_code(fax, cf_white_decode, cfd_white_initial_bits);
+		code = get_code(ctx, fax, cf_white_decode, cfd_white_initial_bits);
 
 	if (code == UNCOMPRESSED)
-		fz_throw(ctx, FZ_ERROR_GENERIC, "uncompressed data in faxd");
+		fz_throw(ctx, FZ_ERROR_FORMAT, "uncompressed data in faxd");
 
 	if (code < 0)
-		fz_throw(ctx, FZ_ERROR_GENERIC, "negative code in 1d faxd");
+		fz_throw(ctx, FZ_ERROR_FORMAT, "negative code in 1d faxd");
 
 	if (fax->a + code > fax->columns)
-		fz_throw(ctx, FZ_ERROR_GENERIC, "overflow in 1d faxd");
+		fz_throw(ctx, FZ_ERROR_FORMAT, "overflow in 1d faxd");
 
 	if (fax->c)
 		setbits(fax->dst, fax->a, fax->a + code);
@@ -441,18 +445,18 @@ dec2d(fz_context *ctx, fz_faxd *fax)
 			fax->a = 0;
 
 		if (fax->c)
-			code = get_code(fax, cf_black_decode, cfd_black_initial_bits);
+			code = get_code(ctx, fax, cf_black_decode, cfd_black_initial_bits);
 		else
-			code = get_code(fax, cf_white_decode, cfd_white_initial_bits);
+			code = get_code(ctx, fax, cf_white_decode, cfd_white_initial_bits);
 
 		if (code == UNCOMPRESSED)
-			fz_throw(ctx, FZ_ERROR_GENERIC, "uncompressed data in faxd");
+			fz_throw(ctx, FZ_ERROR_FORMAT, "uncompressed data in faxd");
 
 		if (code < 0)
-			fz_throw(ctx, FZ_ERROR_GENERIC, "negative code in 2d faxd");
+			fz_throw(ctx, FZ_ERROR_FORMAT, "negative code in 2d faxd");
 
 		if (fax->a + code > fax->columns)
-			fz_throw(ctx, FZ_ERROR_GENERIC, "overflow in 2d faxd");
+			fz_throw(ctx, FZ_ERROR_FORMAT, "overflow in 2d faxd");
 
 		if (fax->c)
 			setbits(fax->dst, fax->a, fax->a + code);
@@ -471,7 +475,7 @@ dec2d(fz_context *ctx, fz_faxd *fax)
 		return;
 	}
 
-	code = get_code(fax, cf_2d_decode, cfd_2d_initial_bits);
+	code = get_code(ctx, fax, cf_2d_decode, cfd_2d_initial_bits);
 
 	switch (code)
 	{
@@ -545,20 +549,19 @@ dec2d(fz_context *ctx, fz_faxd *fax)
 		break;
 
 	case UNCOMPRESSED:
-		fz_throw(ctx, FZ_ERROR_GENERIC, "uncompressed data in faxd");
+		fz_throw(ctx, FZ_ERROR_FORMAT, "uncompressed data in faxd");
 
 	case ERROR:
-		fz_throw(ctx, FZ_ERROR_GENERIC, "invalid code in 2d faxd");
+		fz_throw(ctx, FZ_ERROR_FORMAT, "invalid code in 2d faxd");
 
 	default:
-		fz_throw(ctx, FZ_ERROR_GENERIC, "invalid code in 2d faxd (%d)", code);
+		fz_throw(ctx, FZ_ERROR_FORMAT, "invalid code in 2d faxd (%d)", code);
 	}
 }
 
 static int
-next_faxd(fz_stream *stm, int max)
+next_faxd(fz_context *ctx, fz_stream *stm, size_t max)
 {
-	fz_context *ctx = stm->ctx;
 	fz_faxd *fax = stm->state;
 	unsigned char *p = fax->buffer;
 	unsigned char *ep;
@@ -569,15 +572,15 @@ next_faxd(fz_stream *stm, int max)
 	ep = p + max;
 	if (fax->stage == STATE_INIT && fax->end_of_line)
 	{
-		fill_bits(fax);
+		fill_bits(ctx, fax);
 		if ((fax->word >> (32 - 12)) != 1)
 		{
 			fz_warn(ctx, "faxd stream doesn't start with EOL");
-			while (!fill_bits(fax) && (fax->word >> (32 - 12)) != 1)
+			while (!fill_bits(ctx, fax) && (fax->word >> (32 - 12)) != 1)
 				eat_bits(fax, 1);
 		}
 		if ((fax->word >> (32 - 12)) != 1)
-			fz_throw(ctx, FZ_ERROR_GENERIC, "initial EOL not found");
+			fz_throw(ctx, FZ_ERROR_FORMAT, "initial EOL not found");
 	}
 
 	if (fax->stage == STATE_INIT)
@@ -591,7 +594,7 @@ next_faxd(fz_stream *stm, int max)
 
 loop:
 
-	if (fill_bits(fax))
+	if (fill_bits(ctx, fax))
 	{
 		if (fax->bidx > 31)
 		{
@@ -641,6 +644,8 @@ loop:
 		}
 		fz_catch(ctx)
 		{
+			fz_rethrow_if(ctx, FZ_ERROR_SYSTEM);
+			fz_report_error(ctx);
 			goto error;
 		}
 	}
@@ -653,9 +658,17 @@ loop:
 		}
 		fz_catch(ctx)
 		{
+			fz_rethrow_if(ctx, FZ_ERROR_SYSTEM);
+			fz_report_error(ctx);
 			goto error;
 		}
 	}
+
+	/* Some Fax streams appear to give up at the end. We could detect for this
+	 * with this:
+	 * if (fax->a >= fax->columns && fax->rows == fax->ridx+1)
+	 * 	goto eol;
+	 */
 
 	/* no eol check after makeup codes nor in the middle of an H code */
 	if (fax->stage == STATE_MAKEUP || fax->stage == STATE_H1 || fax->stage == STATE_H2)
@@ -721,14 +734,14 @@ eol:
 			fax->dim = 2;
 	}
 
-	/* if end_of_line & encoded_byte_align, EOLs are *not* optional */
-	if (fax->encoded_byte_align)
-	{
-		if (fax->end_of_line)
-			eat_bits(fax, (12 - fax->bidx) & 7);
-		else
-			eat_bits(fax, (8 - fax->bidx) & 7);
-	}
+	/* If end_of_line & encoded_byte_align - we don't know what to do here.
+	 * GS doesn't offer us any hints either. Previously, we used to do:
+	 *      eat_bits(fax, (12 - fax->bidx) & 7);
+	 * but we can't understand what we were trying to do, and it fails with
+	 * at least one file. Removing it doesn't harm anything in the cluster,
+	 * and brings us into line with gs. */
+	if (fax->encoded_byte_align && !fax->end_of_line)
+		eat_bits(fax, (8 - fax->bidx) & 7);
 
 	/* no more space in output, don't decode the next row yet */
 	if (p == fax->buffer + max)
@@ -776,40 +789,27 @@ close_faxd(fz_context *ctx, void *state_)
 	/* if we read any extra bytes, try to put them back */
 	i = (32 - fax->bidx) / 8;
 	while (i--)
-		fz_unread_byte(fax->chain);
+		fz_unread_byte(ctx, fax->chain);
 
-	fz_close(fax->chain);
+	fz_drop_stream(ctx, fax->chain);
 	fz_free(ctx, fax->ref);
 	fz_free(ctx, fax->dst);
 	fz_free(ctx, fax);
 }
 
-static fz_stream *
-rebind_faxd(fz_stream *s)
-{
-	fz_faxd *state = s->state;
-	return state->chain;
-}
-
-/* Default: columns = 1728, end_of_block = 1, the rest = 0 */
 fz_stream *
-fz_open_faxd(fz_stream *chain,
+fz_open_faxd(fz_context *ctx, fz_stream *chain,
 	int k, int end_of_line, int encoded_byte_align,
 	int columns, int rows, int end_of_block, int black_is_1)
 {
-	fz_context *ctx = chain->ctx;
-	fz_faxd *fax = NULL;
+	fz_faxd *fax;
 
-	fz_var(fax);
+	if (columns < 0 || columns >= INT_MAX - 7)
+		fz_throw(ctx, FZ_ERROR_LIMIT, "too many columns integer overflow (%d)", columns);
 
+	fax = fz_malloc_struct(ctx, fz_faxd);
 	fz_try(ctx)
 	{
-		if (columns < 0 || columns >= INT_MAX - 7)
-			fz_throw(ctx, FZ_ERROR_GENERIC, "too many columns lead to an integer overflow (%d)", columns);
-
-		fax = fz_malloc_struct(ctx, fz_faxd);
-		fax->chain = chain;
-
 		fax->ref = NULL;
 		fax->dst = NULL;
 
@@ -832,25 +832,23 @@ fz_open_faxd(fz_stream *chain,
 		fax->dim = fax->k < 0 ? 2 : 1;
 		fax->eolc = 0;
 
-		fax->ref = fz_malloc(ctx, fax->stride);
-		fax->dst = fz_malloc(ctx, fax->stride);
+		fax->ref = Memento_label(fz_malloc(ctx, fax->stride), "fax_ref");
+		fax->dst = Memento_label(fz_malloc(ctx, fax->stride), "fax_dst");
 		fax->rp = fax->dst;
 		fax->wp = fax->dst + fax->stride;
 
 		memset(fax->ref, 0, fax->stride);
 		memset(fax->dst, 0, fax->stride);
+
+		fax->chain = fz_keep_stream(ctx, chain);
 	}
 	fz_catch(ctx)
 	{
-		if (fax)
-		{
-			fz_free(ctx, fax->dst);
-			fz_free(ctx, fax->ref);
-		}
+		fz_free(ctx, fax->dst);
+		fz_free(ctx, fax->ref);
 		fz_free(ctx, fax);
-		fz_close(chain);
 		fz_rethrow(ctx);
 	}
 
-	return fz_new_stream(ctx, fax, next_faxd, close_faxd, rebind_faxd);
+	return fz_new_stream(ctx, fax, next_faxd, close_faxd);
 }

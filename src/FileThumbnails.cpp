@@ -1,183 +1,149 @@
-/* Copyright 2018 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2022 the SumatraPDF project authors (see AUTHORS file).
    License: GPLv3 */
 
 #include "utils/BaseUtil.h"
-#include "utils/ScopedWin.h"
 #include "utils/CryptoUtil.h"
 #include "utils/FileUtil.h"
+#include "utils/DirIter.h"
 #include "utils/GdiPlusUtil.h"
 #include "utils/WinUtil.h"
 
-#include "BaseEngine.h"
-#include "SettingsStructs.h"
+#include "Settings.h"
+#include "DocController.h"
+#include "FzImgReader.h"
 #include "FileHistory.h"
 
 #include "AppTools.h"
 #include "FileThumbnails.h"
 
-#define THUMBNAILS_DIR_NAME L"sumatrapdfcache"
+#include "utils/Log.h"
 
-// TODO: create in TEMP directory instead?
-static WCHAR* GetThumbnailPath(const WCHAR* filePath) {
+char* GetThumbnailPathTemp(const char* filePath) {
     // create a fingerprint of a (normalized) path for the file name
     // I'd have liked to also include the file's last modification time
     // in the fingerprint (much quicker than hashing the entire file's
     // content), but that's too expensive for files on slow drives
-    unsigned char digest[16];
+    u8 digest[16]{};
     // TODO: why is this happening? Seen in crash reports e.g. 35043
-    if (!filePath)
+    if (!filePath) {
         return nullptr;
-    OwnedData pathU(str::conv::ToUtf8(filePath));
-    if (!pathU.Get())
-        return nullptr;
-    if (path::HasVariableDriveLetter(filePath))
-        pathU.Get()[0] = '?'; // ignore the drive letter, if it might change
-    CalcMD5Digest((unsigned char*)pathU.Get(), str::Len(pathU.Get()), digest);
-    AutoFree fingerPrint(_MemToHex(&digest));
+    }
+    TempStr path = str::DupTemp(filePath);
+    if (path::HasVariableDriveLetter(path)) {
+        // ignore the drive letter, if it might change
+        path[0] = '?';
+    }
+    CalcMD5Digest((u8*)path, str::Leni(path), digest);
+    AutoFreeStr fingerPrint = str::MemToHex(digest, dimof(digest));
 
-    AutoFreeW thumbsPath(AppGenDataFilename(THUMBNAILS_DIR_NAME));
-    if (!thumbsPath)
+    TempStr thumbsDir = GetThumbnailCacheDirTemp();
+    if (!thumbsDir) {
         return nullptr;
-    AutoFreeW fname(str::conv::FromAnsi(fingerPrint));
+    }
 
-    return str::Format(L"%s\\%s.png", thumbsPath.Get(), fname.Get());
+    TempStr res = path::JoinTemp(thumbsDir, str::JoinTemp(fingerPrint, ".png"));
+    return res;
 }
 
-// removes thumbnails that don't belong to any frequently used item in file history
-void CleanUpThumbnailCache(const FileHistory& fileHistory) {
-    AutoFreeW thumbsPath(AppGenDataFilename(THUMBNAILS_DIR_NAME));
-    if (!thumbsPath)
-        return;
-    AutoFreeW pattern(path::Join(thumbsPath, L"*.png"));
-
-    WStrVec files;
-    WIN32_FIND_DATA fdata;
-
-    HANDLE hfind = FindFirstFile(pattern, &fdata);
-    if (INVALID_HANDLE_VALUE == hfind)
-        return;
-    do {
-        if (!(fdata.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY))
-            files.Append(str::Dup(fdata.cFileName));
-    } while (FindNextFile(hfind, &fdata));
-    FindClose(hfind);
-
-    Vec<DisplayState*> list;
-    fileHistory.GetFrequencyOrder(list);
-    for (size_t i = 0; i < list.size() && i < FILE_HISTORY_MAX_FREQUENT * 2; i++) {
-        AutoFreeW bmpPath(GetThumbnailPath(list.at(i)->filePath));
-        if (!bmpPath)
-            continue;
-        int idx = files.Find(path::GetBaseName(bmpPath));
-        if (idx != -1) {
-            CrashIf(idx < 0 || files.size() <= (size_t)idx);
-            free(files.PopAt(idx));
-        }
-    }
-
-    for (size_t i = 0; i < files.size(); i++) {
-        AutoFreeW bmpPath(path::Join(thumbsPath, files.at(i)));
-        file::Delete(bmpPath);
-    }
+TempStr GetThumbnailCacheDirTemp() {
+    TempStr thumbsDir = GetPathInAppDataDirTemp("sumatrapdfcache");
+    return thumbsDir;
 }
 
-static RenderedBitmap* LoadRenderedBitmap(const WCHAR* filePath) {
-    OwnedData data(file::ReadFile(filePath));
-    if (!data.data) {
-        return nullptr;
-    }
-    Bitmap* bmp = BitmapFromData(data.data, data.size);
-    if (!bmp) {
-        return nullptr;
-    }
-
-    HBITMAP hbmp;
-    RenderedBitmap* rendered = nullptr;
-    if (bmp->GetHBITMAP((ARGB)Color::White, &hbmp) == Ok) {
-        rendered = new RenderedBitmap(hbmp, SizeI(bmp->GetWidth(), bmp->GetHeight()));
-    }
-    delete bmp;
-
-    return rendered;
+void DeleteThumbnailCacheDirectory() {
+    TempStr thumbsDir = GetThumbnailCacheDirTemp();
+    dir::RemoveAll(thumbsDir);
 }
 
-bool LoadThumbnail(DisplayState& ds) {
-    delete ds.thumbnail;
-    ds.thumbnail = nullptr;
+void DeleteThumbnailForFile(const char* filePath) {
+    TempStr thumbPath = GetThumbnailPathTemp(filePath);
+    bool ok = file::Delete(thumbPath);
+    auto status = ok ? "ok" : "failed";
+    logf("DeleteThumbnailForFile: file::Remove('%s') %s\n", thumbPath, status);
+}
 
-    AutoFreeW bmpPath(GetThumbnailPath(ds.filePath));
+RenderedBitmap* LoadThumbnail(FileState* fs) {
+    if (fs->thumbnail) {
+        return fs->thumbnail;
+    }
+    TempStr bmpPath = GetThumbnailPathTemp(fs->filePath);
     if (!bmpPath) {
-        return false;
+        return nullptr;
     }
 
     RenderedBitmap* bmp = LoadRenderedBitmap(bmpPath);
-    if (!bmp || bmp->Size().IsEmpty()) {
+    if (!bmp || bmp->GetSize().IsEmpty()) {
         delete bmp;
-        return false;
+        return nullptr;
     }
 
-    ds.thumbnail = bmp;
-    return true;
+    fs->thumbnail = bmp;
+    return fs->thumbnail;
 }
 
-bool HasThumbnail(DisplayState& ds) {
-    if (!ds.thumbnail && !LoadThumbnail(ds)) {
+bool HasThumbnail(FileState* fs) {
+    // TODO: optimize, LoadThumbnail() is probably not necessary
+    if (!fs->thumbnail && !LoadThumbnail(fs)) {
         return false;
     }
 
-    AutoFreeW bmpPath(GetThumbnailPath(ds.filePath));
+    TempStr bmpPath = GetThumbnailPathTemp(fs->filePath);
     if (!bmpPath) {
         return true;
     }
     FILETIME bmpTime = file::GetModificationTime(bmpPath);
-    FILETIME fileTime = file::GetModificationTime(ds.filePath);
+    FILETIME fileTime = file::GetModificationTime(fs->filePath);
     // delete the thumbnail if the file is newer than the thumbnail
     if (FileTimeDiffInSecs(fileTime, bmpTime) > 0) {
-        delete ds.thumbnail;
-        ds.thumbnail = nullptr;
+        delete fs->thumbnail;
+        fs->thumbnail = nullptr;
     }
 
-    return ds.thumbnail != nullptr;
+    return fs->thumbnail != nullptr;
 }
 
-void SetThumbnail(DisplayState* ds, RenderedBitmap* bmp) {
-    CrashIf(bmp && bmp->Size().IsEmpty());
-    if (!ds || !bmp || bmp->Size().IsEmpty()) {
+// takes ownership of bmp
+void SetThumbnail(FileState* fs, RenderedBitmap* bmp) {
+    ReportIf(bmp && bmp->GetSize().IsEmpty());
+    if (!fs || !bmp || bmp->GetSize().IsEmpty()) {
         delete bmp;
         return;
     }
-    delete ds->thumbnail;
-    ds->thumbnail = bmp;
-    SaveThumbnail(*ds);
+    delete fs->thumbnail;
+    fs->thumbnail = bmp;
+    SaveThumbnail(fs);
 }
 
-void SaveThumbnail(DisplayState& ds) {
-    if (!ds.thumbnail) {
+void SaveThumbnail(FileState* fs) {
+    if (!fs->thumbnail) {
         return;
     }
 
-    AutoFreeW bmpPath(GetThumbnailPath(ds.filePath));
-    if (!bmpPath) {
+    TempStr thumbnailPath = GetThumbnailPathTemp(fs->filePath);
+    if (!thumbnailPath) {
         return;
     }
-    AutoFreeW thumbsPath(path::GetDir(bmpPath));
-    if (dir::Create(thumbsPath)) {
-        CrashIf(!str::EndsWithI(bmpPath, L".png"));
-        Bitmap bmp(ds.thumbnail->GetBitmap(), nullptr);
-        CLSID tmpClsid = GetEncoderClsid(L"image/png");
-        bmp.Save(bmpPath.Get(), &tmpClsid, nullptr);
+    if (!dir::CreateForFile(thumbnailPath)) {
+        logf("SaveThumbnail: dir::CreateForFile('%s') failed, file path: '%s'\n", thumbnailPath, fs->filePath);
+        ReportIfQuick(true);
     }
+    ReportIfQuick(!str::EndsWithI(thumbnailPath, ".png"));
+
+    Gdiplus::Bitmap bmp(fs->thumbnail->GetBitmap(), nullptr);
+    CLSID tmpClsid = GetEncoderClsid(L"image/png");
+    TempWStr pathW = ToWStrTemp(thumbnailPath);
+    bmp.Save(pathW, &tmpClsid, nullptr);
 }
 
-void RemoveThumbnail(DisplayState& ds) {
-    if (!HasThumbnail(ds)) {
+void RemoveThumbnail(FileState* fs) {
+    if (!HasThumbnail(fs)) {
         return;
     }
 
-    AutoFreeW bmpPath(GetThumbnailPath(ds.filePath));
+    char* bmpPath = GetThumbnailPathTemp(fs->filePath);
     if (bmpPath) {
         file::Delete(bmpPath);
     }
-    delete ds.thumbnail;
-    ds.thumbnail = nullptr;
+    delete fs->thumbnail;
+    fs->thumbnail = nullptr;
 }

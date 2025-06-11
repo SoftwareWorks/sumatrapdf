@@ -1,4 +1,4 @@
-/* Copyright 2018 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2022 the SumatraPDF project authors (see AUTHORS file).
    License: Simplified BSD (see COPYING.BSD) */
 
 enum HtmlParseError {
@@ -25,12 +25,13 @@ struct HtmlElement {
     char* name; // name is nullptr whenever tag != Tag_NotFound
     HtmlAttr* firstAttr;
     HtmlElement *up, *down, *next;
-    UINT codepage;
+    uint codepage;
 
     bool NameIs(const char* name) const;
     bool NameIsNS(const char* name, const char* ns) const;
 
     WCHAR* GetAttribute(const char* name) const;
+    char* GetAttributeTemp(const char* name) const;
     HtmlElement* GetChildByTag(HtmlTag tag, int idx = 0) const;
 };
 
@@ -38,18 +39,18 @@ class HtmlParser {
     PoolAllocator allocator;
 
     // text to parse. It can be changed.
-    char* html;
+    char* html = nullptr;
     // true if s was allocated by ourselves, false if managed
     // by the caller
-    bool freeHtml;
+    bool freeHtml = false;
     // the codepage used for converting text to Unicode
-    UINT codepage;
+    uint codepage{CP_ACP};
 
-    size_t elementsCount;
-    size_t attributesCount;
+    size_t elementsCount = 0;
+    size_t attributesCount = 0;
 
-    HtmlElement* rootElement;
-    HtmlElement* currElement;
+    HtmlElement* rootElement = nullptr;
+    HtmlElement* currElement = nullptr;
 
     HtmlElement* AllocElement(HtmlTag tag, char* name, HtmlElement* parent);
     HtmlAttr* AllocAttr(char* name, HtmlAttr* next);
@@ -67,32 +68,34 @@ class HtmlParser {
     void Reset();
 
   public:
-    HtmlParseError error;     // parsing error, a static string
-    const char* errorContext; // pointer within html showing which part we failed to parse
+    HtmlParseError error{ErrParsingNoError}; // parsing error, a static string
+    const char* errorContext = nullptr;      // pointer within html showing which part we failed to parse
 
     HtmlParser();
     ~HtmlParser();
 
-    HtmlElement* Parse(const char* s, UINT codepage = CP_ACP);
-    HtmlElement* ParseInPlace(char* s, UINT codepage = CP_ACP);
+    HtmlElement* Parse(const ByteSlice& d, uint codepage = CP_ACP);
+    HtmlElement* ParseInPlace(const ByteSlice& d, uint codepage = CP_ACP);
 
-    size_t ElementsCount() const { return elementsCount; }
-
-    size_t TotalAttrCount() const { return attributesCount; }
+    size_t ElementsCount() const;
+    size_t TotalAttrCount() const;
 
     HtmlElement* FindElementByName(const char* name, HtmlElement* from = nullptr);
     HtmlElement* FindElementByNameNS(const char* name, const char* ns, HtmlElement* from = nullptr);
 };
 
-WCHAR* DecodeHtmlEntitites(const char* string, UINT codepage);
+WCHAR* DecodeHtmlEntitites(const char* string, uint codepage);
+char* DecodeHtmlEntititesTemp(const char* string, uint codepage);
 
-namespace str {
-namespace conv {
+namespace strconv {
 
 inline WCHAR* FromHtmlUtf8(const char* s, size_t len) {
-    AutoFree tmp(str::DupN(s, len));
+    char* tmp = str::DupTemp(s, len);
     return DecodeHtmlEntitites(tmp, CP_UTF8);
 }
 
-} // namespace conv
-} // namespace str
+inline char* FromHtmlUtf8Temp(const char* s, size_t len) {
+    char* tmp = str::DupTemp(s, len);
+    return DecodeHtmlEntititesTemp(tmp, CP_UTF8);
+}
+} // namespace strconv

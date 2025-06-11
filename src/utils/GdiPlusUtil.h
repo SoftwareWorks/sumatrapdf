@@ -1,27 +1,25 @@
-/* Copyright 2018 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2022 the SumatraPDF project authors (see AUTHORS file).
    License: Simplified BSD (see COPYING.BSD) */
 
-using namespace Gdiplus;
+struct RenderedBitmap;
 
-#define COL_CLOSE_X RGB(0xa0, 0xa0, 0xa0)
-#define COL_CLOSE_X_HOVER RGB(0xf9, 0xeb, 0xeb)  // white-ish
-#define COL_CLOSE_HOVER_BG RGB(0xC1, 0x35, 0x35) // red-ish
+Gdiplus::RectF RectToRectF(Gdiplus::Rect r);
 
-typedef RectF (*TextMeasureAlgorithm)(Graphics* g, Font* f, const WCHAR* s, int len);
+typedef RectF (*TextMeasureAlgorithm)(Gdiplus::Graphics* g, Gdiplus::Font* f, const WCHAR* s, int len);
 
-RectF MeasureTextAccurate(Graphics* g, Font* f, const WCHAR* s, int len);
-RectF MeasureTextAccurate2(Graphics* g, Font* f, const WCHAR* s, int len);
-RectF MeasureTextStandard(Graphics* g, Font* f, const WCHAR* s, int len);
-RectF MeasureTextQuick(Graphics* g, Font* f, const WCHAR* s, int len);
-RectF MeasureText(Graphics* g, Font* f, const WCHAR* s, size_t len = -1, TextMeasureAlgorithm algo = nullptr);
-// REAL     GetSpaceDx(Graphics *g, Font *f, TextMeasureAlgorithm algo=nullptr);
+RectF MeasureTextAccurate(Gdiplus::Graphics* g, Gdiplus::Font* f, const WCHAR* s, int len);
+RectF MeasureTextAccurate2(Gdiplus::Graphics* g, Gdiplus::Font* f, const WCHAR* s, int len);
+RectF MeasureTextStandard(Gdiplus::Graphics* g, Gdiplus::Font* f, const WCHAR* s, int len);
+RectF MeasureTextQuick(Gdiplus::Graphics* g, Gdiplus::Font* f, const WCHAR* s, int len);
+RectF MeasureText(Gdiplus::Graphics* g, Gdiplus::Font* f, const WCHAR* s, size_t len = -1,
+                  TextMeasureAlgorithm algo = nullptr);
+// float     GetSpaceDx(Graphics *g, Font *f, TextMeasureAlgorithm algo=nullptr);
 // size_t   StringLenForWidth(Graphics *g, Font *f, const WCHAR *s, size_t len, float dx, TextMeasureAlgorithm
 // algo=nullptr);
 
-void GetBaseTransform(Matrix& m, RectF pageRect, float zoom, int rotation);
+void GetBaseTransform(Gdiplus::Matrix& m, Gdiplus::RectF pageRect, float zoom, int rotation);
 
-const WCHAR* GfxFileExtFromData(const char* data, size_t len);
-bool IsGdiPlusNativeFormat(const char* data, size_t len);
-Bitmap* BitmapFromData(const char* data, size_t len);
-Size BitmapSizeFromData(const char* data, size_t len);
+Gdiplus::Bitmap* BitmapFromDataWin(const ByteSlice& bmpData);
+Size BitmapSizeFromData(const ByteSlice&);
 CLSID GetEncoderClsid(const WCHAR* format);
+RenderedBitmap* LoadRenderedBitmapWin(const char* path);

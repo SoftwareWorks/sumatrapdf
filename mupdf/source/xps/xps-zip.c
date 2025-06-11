@@ -1,270 +1,265 @@
-#include "mupdf/xps.h"
+// Copyright (C) 2004-2024 Artifex Software, Inc.
+//
+// This file is part of MuPDF.
+//
+// MuPDF is free software: you can redistribute it and/or modify it under the
+// terms of the GNU Affero General Public License as published by the Free
+// Software Foundation, either version 3 of the License, or (at your option)
+// any later version.
+//
+// MuPDF is distributed in the hope that it will be useful, but WITHOUT ANY
+// WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+// FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+// details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with MuPDF. If not, see <https://www.gnu.org/licenses/agpl-3.0.en.html>
+//
+// Alternative licensing terms are available from the licensor.
+// For commercial licensing, see <https://www.artifex.com/> or contact
+// Artifex Software, Inc., 39 Mesa Street, Suite 108A, San Francisco,
+// CA 94129, USA, for further information.
 
-static void xps_init_document(xps_document *doc);
+#include "mupdf/fitz.h"
+#include "xps-imp.h"
 
-xps_part *
-xps_new_part(xps_document *doc, char *name, unsigned char *data, int size)
+#include <string.h>
+
+static void xps_init_document(fz_context *ctx, xps_document *doc);
+
+static xps_part *
+xps_new_part(fz_context *ctx, xps_document *doc, char *name, fz_buffer *data)
 {
-	xps_part *part;
+	xps_part *part = NULL;
 
-	part = fz_malloc_struct(doc->ctx, xps_part);
-	fz_try(doc->ctx)
+	fz_var(part);
+
+	fz_try(ctx)
 	{
-		part->name = fz_strdup(doc->ctx, name);
-		part->data = data;
-		part->size = size;
+		part = fz_malloc_struct(ctx, xps_part);
+		part->name = fz_strdup(ctx, name);
+		part->data = data; /* take ownership of buffer */
 	}
-	fz_catch(doc->ctx)
+	fz_catch(ctx)
 	{
-		fz_free(doc->ctx, part->name);
-		fz_free(doc->ctx, part->data);
-		fz_free(doc->ctx, part);
-		fz_rethrow(doc->ctx);
+		fz_drop_buffer(ctx, data);
+		fz_free(ctx, part);
+		fz_rethrow(ctx);
 	}
 
 	return part;
 }
 
 void
-xps_free_part(xps_document *doc, xps_part *part)
+xps_drop_part(fz_context *ctx, xps_document *doc, xps_part *part)
 {
-	fz_free(doc->ctx, part->name);
-	fz_free(doc->ctx, part->data);
-	fz_free(doc->ctx, part);
+	fz_free(ctx, part->name);
+	fz_drop_buffer(ctx, part->data);
+	fz_free(ctx, part);
 }
 
-/*
- * Read and interleave split parts from a ZIP file.
- */
 xps_part *
-xps_read_part(xps_document *doc, char *partname)
+xps_read_part(fz_context *ctx, xps_document *doc, char *partname)
 {
-	fz_context *ctx = doc->ctx;
 	fz_archive *zip = doc->zip;
-	fz_buffer *buf, *tmp;
+	fz_buffer *buf = NULL;
+	fz_buffer *tmp = NULL;
 	char path[2048];
-	unsigned char *data;
-	int size;
 	int count;
 	char *name;
 	int seen_last;
+
+	fz_var(buf);
+	fz_var(tmp);
 
 	name = partname;
 	if (name[0] == '/')
 		name ++;
 
-	/* All in one piece */
-	if (fz_has_archive_entry(ctx, zip, name))
+	fz_try(ctx)
 	{
-		buf = fz_read_archive_entry(ctx, zip, name);
-	}
-
-	/* Assemble all the pieces */
-	else
-	{
-		buf = fz_new_buffer(ctx, 512);
-		seen_last = 0;
-		for (count = 0; !seen_last; ++count)
+		/* All in one piece */
+		if (fz_has_archive_entry(ctx, zip, name))
 		{
-			sprintf(path, "%s/[%d].piece", name, count);
-			if (fz_has_archive_entry(ctx, zip, path))
+			buf = fz_read_archive_entry(ctx, zip, name);
+		}
+
+		/* Assemble all the pieces */
+		else
+		{
+			buf = fz_new_buffer(ctx, 512);
+			seen_last = 0;
+			for (count = 0; !seen_last; ++count)
 			{
-				tmp = fz_read_archive_entry(ctx, zip, path);
-				fz_buffer_cat(ctx, buf, tmp);
-				fz_drop_buffer(ctx, tmp);
-			}
-			else
-			{
-				sprintf(path, "%s/[%d].last.piece", name, count);
+				fz_snprintf(path, sizeof path, "%s/[%d].piece", name, count);
 				if (fz_has_archive_entry(ctx, zip, path))
 				{
 					tmp = fz_read_archive_entry(ctx, zip, path);
-					fz_buffer_cat(ctx, buf, tmp);
+					fz_append_buffer(ctx, buf, tmp);
 					fz_drop_buffer(ctx, tmp);
-					seen_last = 1;
+					tmp = NULL;
 				}
 				else
 				{
-					fz_drop_buffer(ctx, buf);
-					fz_throw(ctx, FZ_ERROR_GENERIC, "cannot find all pieces for part '%s'", partname);
+					fz_snprintf(path, sizeof path, "%s/[%d].last.piece", name, count);
+					if (fz_has_archive_entry(ctx, zip, path))
+					{
+						tmp = fz_read_archive_entry(ctx, zip, path);
+						fz_append_buffer(ctx, buf, tmp);
+						fz_drop_buffer(ctx, tmp);
+						tmp = NULL;
+						seen_last = 1;
+					}
+					else
+						fz_throw(ctx, FZ_ERROR_FORMAT, "cannot find all pieces for part '%s'", partname);
 				}
 			}
 		}
+
+	}
+	fz_catch(ctx)
+	{
+		fz_drop_buffer(ctx, tmp);
+		fz_drop_buffer(ctx, buf);
+		fz_rethrow(ctx);
 	}
 
-	fz_write_buffer_byte(ctx, buf, 0); /* zero-terminate */
-
-	/* take over the data */
-	data = buf->data;
-	/* size doesn't include the added zero-terminator */
-	size = buf->len - 1;
-	fz_free(ctx, buf);
-
-	return xps_new_part(doc, partname, data, size);
+	return xps_new_part(ctx, doc, partname, buf);
 }
 
 int
-xps_has_part(xps_document *doc, char *name)
+xps_has_part(fz_context *ctx, xps_document *doc, char *name)
 {
 	char buf[2048];
 	if (name[0] == '/')
 		name++;
-	if (fz_has_archive_entry(doc->ctx, doc->zip, name))
+	if (fz_has_archive_entry(ctx, doc->zip, name))
 		return 1;
-	sprintf(buf, "%s/[0].piece", name);
-	if (fz_has_archive_entry(doc->ctx, doc->zip, buf))
+	fz_snprintf(buf, sizeof buf, "%s/[0].piece", name);
+	if (fz_has_archive_entry(ctx, doc->zip, buf))
 		return 1;
-	sprintf(buf, "%s/[0].last.piece", name);
-	if (fz_has_archive_entry(doc->ctx, doc->zip, buf))
+	fz_snprintf(buf, sizeof buf, "%s/[0].last.piece", name);
+	if (fz_has_archive_entry(ctx, doc->zip, buf))
 		return 1;
 	return 0;
 }
 
-static xps_document *
-xps_open_document_with_directory(fz_context *ctx, const char *directory)
+fz_document *
+xps_open_document_with_directory(fz_context *ctx, fz_archive *dir)
 {
 	xps_document *doc;
 
 	doc = fz_malloc_struct(ctx, xps_document);
-	xps_init_document(doc);
-	doc->ctx = ctx;
-	doc->zip = fz_open_directory(ctx, directory);
+	xps_init_document(ctx, doc);
 
 	fz_try(ctx)
 	{
-		xps_read_page_list(doc);
+		doc->zip = fz_keep_archive(ctx, dir);
+		xps_read_page_list(ctx, doc);
 	}
 	fz_catch(ctx)
 	{
-		xps_close_document(doc);
+		fz_drop_document(ctx, &doc->super);
 		fz_rethrow(ctx);
 	}
 
-	return doc;
+	return (fz_document*)doc;
 }
 
-xps_document *
+fz_document *
 xps_open_document_with_stream(fz_context *ctx, fz_stream *file)
 {
 	xps_document *doc;
 
 	doc = fz_malloc_struct(ctx, xps_document);
-	xps_init_document(doc);
-	doc->ctx = ctx;
+	xps_init_document(ctx, doc);
 
 	fz_try(ctx)
 	{
-		doc->zip = fz_open_archive_with_stream(ctx, file);
-		xps_read_page_list(doc);
+		doc->zip = fz_open_zip_archive_with_stream(ctx, file);
+		xps_read_page_list(ctx, doc);
 	}
 	fz_catch(ctx)
 	{
-		xps_close_document(doc);
+		fz_drop_document(ctx, &doc->super);
 		fz_rethrow(ctx);
 	}
 
-	return doc;
+	return (fz_document*)doc;
 }
 
-xps_document *
+fz_document *
 xps_open_document(fz_context *ctx, const char *filename)
 {
-	char buf[2048];
 	fz_stream *file;
-	char *p;
-	xps_document *doc;
+	fz_document *doc = NULL;
 
-	if (strstr(filename, "/_rels/.rels") || strstr(filename, "\\_rels\\.rels"))
+	if (fz_is_directory(ctx, filename))
 	{
-		fz_strlcpy(buf, filename, sizeof buf);
-		p = strstr(buf, "/_rels/.rels");
-		if (!p)
-			p = strstr(buf, "\\_rels\\.rels");
-		*p = 0;
-		return xps_open_document_with_directory(ctx, buf);
+		fz_archive *dir = fz_open_directory(ctx, filename);
+
+		fz_try(ctx)
+			doc = xps_open_document_with_directory(ctx, dir);
+		fz_always(ctx)
+			fz_drop_archive(ctx, dir);
+		fz_catch(ctx)
+			fz_rethrow(ctx);
+
+		return doc;
 	}
 
 	file = fz_open_file(ctx, filename);
-	if (!file)
-		fz_throw(ctx, FZ_ERROR_GENERIC, "cannot open file '%s': %s", filename, strerror(errno));
 
 	fz_try(ctx)
-	{
 		doc = xps_open_document_with_stream(ctx, file);
-	}
 	fz_always(ctx)
-	{
-		fz_close(file);
-	}
+		fz_drop_stream(ctx, file);
 	fz_catch(ctx)
-	{
-		fz_rethrow_message(ctx, "cannot load document '%s'", filename);
-	}
-	return doc;
+		fz_rethrow(ctx);
+
+	return (fz_document*)doc;
 }
 
-void
-xps_close_document(xps_document *doc)
+static void
+xps_drop_document(fz_context *ctx, fz_document *doc_)
 {
+	xps_document *doc = (xps_document*)doc_;
 	xps_font_cache *font, *next;
 
-	if (!doc)
-		return;
-
 	if (doc->zip)
-		fz_close_archive(doc->ctx, doc->zip);
+		fz_drop_archive(ctx, doc->zip);
 
 	font = doc->font_table;
 	while (font)
 	{
 		next = font->next;
-		fz_drop_font(doc->ctx, font->font);
-		fz_free(doc->ctx, font->name);
-		fz_free(doc->ctx, font);
+		fz_drop_font(ctx, font->font);
+		fz_free(ctx, font->name);
+		fz_free(ctx, font);
 		font = next;
 	}
 
-	/* cf. http://code.google.com/p/sumatrapdf/issues/detail?id=2094 */
-	fz_empty_store(doc->ctx);
+	xps_drop_page_list(ctx, doc);
 
-	xps_free_page_list(doc);
-
-	fz_free(doc->ctx, doc->start_part);
-	fz_free(doc->ctx, doc);
+	fz_free(ctx, doc->start_part);
 }
 
 static int
-xps_meta(xps_document *doc, int key, void *ptr, int size)
+xps_lookup_metadata(fz_context *ctx, fz_document *doc_, const char *key, char *buf, size_t size)
 {
-	switch (key)
-	{
-	case FZ_META_FORMAT_INFO:
-		sprintf((char *)ptr, "XPS");
-		return FZ_META_OK;
-	default:
-		return FZ_META_UNKNOWN_KEY;
-	}
+	if (!strcmp(key, FZ_META_FORMAT))
+		return 1 + (int)fz_strlcpy(buf, "XPS", size);
+	return -1;
 }
 
 static void
-xps_rebind(xps_document *doc, fz_context *ctx)
+xps_init_document(fz_context *ctx, xps_document *doc)
 {
-	doc->ctx = ctx;
-	fz_rebind_archive(doc->zip, ctx);
-	fz_rebind_device(doc->dev, ctx);
-}
-
-static void
-xps_init_document(xps_document *doc)
-{
-	doc->super.close = (fz_document_close_fn *)xps_close_document;
-	doc->super.load_outline = (fz_document_load_outline_fn *)xps_load_outline;
-	doc->super.count_pages = (fz_document_count_pages_fn *)xps_count_pages;
-	doc->super.load_page = (fz_document_load_page_fn *)xps_load_page;
-	doc->super.load_links = (fz_document_load_links_fn *)xps_load_links;
-	doc->super.bound_page = (fz_document_bound_page_fn *)xps_bound_page;
-	doc->super.run_page_contents = (fz_document_run_page_contents_fn *)xps_run_page;
-	doc->super.free_page = (fz_document_free_page_fn *)xps_free_page;
-	doc->super.meta = (fz_document_meta_fn *)xps_meta;
-	doc->super.rebind = (fz_document_rebind_fn *)xps_rebind;
+	doc->super.refs = 1;
+	doc->super.drop_document = xps_drop_document;
+	doc->super.load_outline = xps_load_outline;
+	doc->super.resolve_link_dest = xps_lookup_link_target;
+	doc->super.count_pages = xps_count_pages;
+	doc->super.load_page = xps_load_page;
+	doc->super.lookup_metadata = xps_lookup_metadata;
 }

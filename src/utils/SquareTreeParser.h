@@ -1,22 +1,27 @@
-/* Copyright 2018 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2022 the SumatraPDF project authors (see AUTHORS file).
    License: Simplified BSD (see COPYING.BSD) */
 
-class SquareTreeNode {
-  public:
-    SquareTreeNode() {}
+struct SquareTreeNode {
+    SquareTreeNode() = default;
     ~SquareTreeNode();
 
     struct DataItem {
-        const char* key;
-        union {
-            const char* str;
-            SquareTreeNode* child;
-        } value;
-        bool isChild;
+        const char* key = nullptr;
+        // only one of str or child are set
+        const char* str = nullptr;
+        SquareTreeNode* child = nullptr;
 
-        DataItem() : key(nullptr) {}
-        DataItem(const char* key, const char* string) : key(key), isChild(false) { value.str = string; }
-        DataItem(const char* key, SquareTreeNode* node) : key(key), isChild(true) { value.child = node; }
+        DataItem() = default;
+        DataItem(const char* k, const char* string) {
+            this->key = k;
+            this->str = string;
+            this->child = nullptr;
+        }
+        DataItem(const char* k, SquareTreeNode* node) {
+            this->key = k;
+            this->str = nullptr;
+            this->child = node;
+        }
     };
     Vec<DataItem> data;
 
@@ -24,12 +29,4 @@ class SquareTreeNode {
     SquareTreeNode* GetChild(const char* key, size_t* startIdx = nullptr) const;
 };
 
-class SquareTree {
-    AutoFree dataUtf8;
-
-  public:
-    explicit SquareTree(const char* data);
-    ~SquareTree() { delete root; }
-
-    SquareTreeNode* root;
-};
+SquareTreeNode* ParseSquareTree(const char* s);

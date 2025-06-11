@@ -1,10 +1,17 @@
-/* Copyright 2018 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2022 the SumatraPDF project authors (see AUTHORS file).
    License: GPLv3 */
 
-void CreateToc(WindowInfo* win);
-void ClearTocBox(WindowInfo* win);
-void ToggleTocBox(WindowInfo* win);
-void LoadTocTree(WindowInfo* win);
-void UpdateTocColors(WindowInfo* win);
-void UpdateTocSelection(WindowInfo* win, int currPageNo);
-void UpdateTocExpansionState(TabInfo* tab, TreeCtrl*, HTREEITEM hItem);
+void CreateToc(MainWindow*);
+void ClearTocBox(MainWindow*);
+void ToggleTocBox(MainWindow*);
+void LoadTocTree(MainWindow*);
+void UpdateTocSelection(MainWindow*, int currPageNo);
+void UpdateTocExpansionState(Vec<int>& tocState, TreeView*, TocTree*);
+void UnsubclassToc(MainWindow*);
+
+// shared with Favorites.cpp
+// void TocCustomizeTooltip(TreeItem::GetTooltipEvent*);
+// LRESULT TocTreeKeyDown2(TreeKeyDownEvent*);
+
+// void TocTreeCharHandler(CharEvent* ev);
+// void TocTreeMouseWheelHandler(MouseWheelEvent* ev);

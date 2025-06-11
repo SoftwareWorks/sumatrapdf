@@ -1,4 +1,4 @@
-/* Copyright 2018 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2022 the SumatraPDF project authors (see AUTHORS file).
    License: Simplified BSD (see COPYING.BSD) */
 
 #include "BaseUtil.h"
@@ -18,12 +18,14 @@ int HtmlEntityNameToRune(const char* name, size_t nameLen) {
 // version, otherwise it wouldn't match anyway
 // returns -1 if didn't find
 int HtmlEntityNameToRune(const WCHAR* name, size_t nameLen) {
-    char asciiName[MAX_ENTITY_NAME_LEN];
-    if (nameLen > MAX_ENTITY_NAME_LEN)
+    char asciiName[MAX_ENTITY_NAME_LEN]{};
+    if (nameLen > MAX_ENTITY_NAME_LEN) {
         return -1;
+    }
     for (size_t i = 0; i < nameLen; i++) {
-        if (name[i] > 127)
+        if (name[i] > 127) {
             return -1;
+        }
         asciiName[i] = (char)name[i];
     }
     return FindHtmlEntityRune(asciiName, nameLen);
@@ -36,11 +38,12 @@ bool SkipUntil(const char*& s, const char* end, char c) {
     return *s == c;
 }
 
-bool SkipUntil(const char*& s, const char* end, char* term) {
+bool SkipUntil(const char*& s, const char* end, const char* term) {
     size_t len = str::Len(term);
     for (; s < end; s++) {
-        if (s + len <= end && str::StartsWith(s, term))
+        if (s + len <= end && str::StartsWith(s, term)) {
             return true;
+        }
     }
     return false;
 }
@@ -86,8 +89,9 @@ bool IsSpaceOnly(const char* s, const char* end) {
 }
 
 void MemAppend(char*& dst, const char* s, size_t len) {
-    if (0 == len)
+    if (0 == len) {
         return;
+    }
     memcpy(dst, s, len);
     dst += len;
 }
@@ -98,22 +102,27 @@ void MemAppend(char*& dst, const char* s, size_t len) {
 // returns a pointer to the first character after the entity
 const char* ResolveHtmlEntity(const char* s, size_t len, int& rune) {
     const char* entEnd = str::Parse(s, len, "#%d%?;", &rune);
-    if (entEnd)
+    if (entEnd) {
         return entEnd;
+    }
     entEnd = str::Parse(s, len, "#x%x%?;", &rune);
-    if (entEnd)
+    if (entEnd) {
         return entEnd;
+    }
 
     // go to the end of a potential named entity
-    for (entEnd = s; entEnd < s + len && isalnum((unsigned char)*entEnd); entEnd++)
+    for (entEnd = s; entEnd < s + len && isalnum((u8)*entEnd); entEnd++) {
         ;
+    }
     if (entEnd != s) {
         rune = HtmlEntityNameToRune(s, entEnd - s);
-        if (-1 == rune)
+        if (-1 == rune) {
             return nullptr;
+        }
         // skip the trailing colon - if there is one
-        if (entEnd < s + len && *entEnd == ';')
+        if (entEnd < s + len && *entEnd == ';') {
             entEnd++;
+        }
         return entEnd;
     }
 
@@ -135,8 +144,9 @@ const char* ResolveHtmlEntities(const char* s, const char* end, Allocator* alloc
     for (;;) {
         bool found = SkipUntil(curr, end, '&');
         if (!found) {
-            if (!res)
+            if (!res) {
                 return s;
+            }
             // copy the remaining string
             MemAppend(dst, s, end - s);
             break;
@@ -164,30 +174,54 @@ const char* ResolveHtmlEntities(const char* s, const char* end, Allocator* alloc
         s = curr;
     }
     *dst = 0;
-    CrashIf(dst >= res + resLen);
+    ReportIf(dst >= res + resLen);
     return (const char*)res;
 }
 
 // convenience function for the above that always allocates
 char* ResolveHtmlEntities(const char* s, size_t len) {
-    const char* tmp = ResolveHtmlEntities(s, s + len, nullptr);
-    if (tmp == s)
-        return str::DupN(s, len);
-    return (char*)tmp;
+    const char* res = ResolveHtmlEntities(s, s + len, nullptr);
+    if (res == s) {
+        // ensure 0-terminated string is returned
+        return str::Dup(s, len);
+    }
+    return (char*)res;
+}
+
+TempStr ResolveHtmlEntitiesTemp(const char* s, size_t len) {
+    const char* res = ResolveHtmlEntities(s, s + len, GetTempAllocator());
+    if (res == s) {
+        // ensure 0-terminated string is returned
+        return str::DupTemp(s, len);
+    }
+    return (TempStr)res;
 }
 
 bool AttrInfo::NameIs(const char* s) const {
     return str::EqNIx(name, nameLen, s);
 }
 
+// return true if nameToCheck is the same as s after skipping namespace preifix
+static bool IsNameWithNS(const char* s, size_t sLen, const char* nameToCheck) {
+    const char* sRealStart = s;
+    size_t len = sLen;
+    // skip (potential) namespace prefix i.e. "foo:bar" = "bar"
+    const char* tmp = (const char*)memchr(s, ':', len);
+    if (tmp) {
+        sRealStart = tmp + 1;
+        size_t prefixLen = sRealStart - s;
+        ReportIf(prefixLen > len);
+        len -= prefixLen;
+    }
+    return str::EqNIx(sRealStart, len, nameToCheck);
+}
+
 // for now just ignores any namespace qualifier
 // (i.e. succeeds for "xlink:href" with name="href" and any value of attrNS)
 // TODO: add proper namespace support
-bool AttrInfo::NameIsNS(const char* s, const char* ns) const {
-    CrashIf(!ns);
-    const char* nameStart = (const char*)memchr(name, ':', nameLen);
-    nameStart = nameStart ? nameStart + 1 : name;
-    return str::EqNIx(nameStart, nameLen - (nameStart - name), s);
+bool AttrInfo::NameIsNS(const char* nameToCheck, const char*) const {
+    // ReportIf(!ns);
+    return IsNameWithNS(name, nameLen, nameToCheck);
 }
 
 bool AttrInfo::ValIs(const char* s) const {
@@ -213,41 +247,44 @@ void HtmlToken::SetText(const char* new_s, const char* end) {
 void HtmlToken::SetError(ParsingError err, const char* errContext) {
     type = Error;
     error = err;
-    s = errContext;
+    this->s = errContext;
 }
 
-bool HtmlToken::NameIs(const char* name) const {
-    return (str::Len(name) == nLen) && str::StartsWithI(s, name);
+bool HtmlToken::NameIs(const char* nameToFind) const {
+    return (str::Len(nameToFind) == nLen) && str::StartsWithI(s, nameToFind);
 }
 
 // for now just ignores any namespace qualifier
 // (i.e. succeeds for "opf:content" with name="content" and any value of ns)
 // TODO: add proper namespace support
-bool HtmlToken::NameIsNS(const char* name, const char* ns) const {
-    CrashIf(!ns);
-    const char* nameStart = (const char*)memchr(s, ':', nLen);
-    nameStart = nameStart ? nameStart + 1 : s;
-    return str::EqNIx(nameStart, nLen - (nameStart - s), name);
+bool HtmlToken::NameIsNS(const char* nameToCheck, const char*) const {
+    // ReportIf(!ns);
+    //  nLen is 'nameLen' i.e. first nLen characters of s is a name
+    return IsNameWithNS(s, nLen, nameToCheck);
 }
 
 // reparse point is an address within html that we can
 // can feed to HtmlPullParser() to start parsing from that point
 const char* HtmlToken::GetReparsePoint() const {
-    if (IsStartTag() || IsEmptyElementEndTag())
+    if (IsStartTag() || IsEmptyElementEndTag()) {
         return s - 1;
-    if (IsEndTag())
+    }
+    if (IsEndTag()) {
         return s - 2;
-    if (IsText())
+    }
+    if (IsText()) {
         return s;
-    CrashIf(true); // don't call us on error tokens
+    }
+    ReportIf(true); // don't call us on error tokens
     return nullptr;
 }
 
 AttrInfo* HtmlToken::GetAttrByName(const char* name) {
     nextAttr = nullptr; // start from the beginning
     for (AttrInfo* a = NextAttr(); a; a = NextAttr()) {
-        if (a->NameIs(name))
+        if (a->NameIs(name)) {
             return a;
+        }
     }
     return nullptr;
 }
@@ -255,8 +292,9 @@ AttrInfo* HtmlToken::GetAttrByName(const char* name) {
 AttrInfo* HtmlToken::GetAttrByNameNS(const char* name, const char* attrNS) {
     nextAttr = nullptr; // start from the beginning
     for (AttrInfo* a = NextAttr(); a; a = NextAttr()) {
-        if (a->NameIsNS(name, attrNS))
+        if (a->NameIsNS(name, attrNS)) {
             return a;
+        }
     }
     return nullptr;
 }
@@ -267,8 +305,9 @@ AttrInfo* HtmlToken::GetAttrByNameNS(const char* name, const char* attrNS) {
 AttrInfo* HtmlToken::NextAttr() {
     // start after the last attribute found (or the beginning)
     const char* curr = nextAttr;
-    if (!curr)
+    if (!curr) {
         curr = s + nLen;
+    }
     const char* end = s + sLen;
 
     // parse attribute name
@@ -281,8 +320,9 @@ AttrInfo* HtmlToken::NextAttr() {
     attrInfo.name = curr;
     SkipName(curr, end);
     attrInfo.nameLen = curr - attrInfo.name;
-    if (0 == attrInfo.nameLen)
+    if (0 == attrInfo.nameLen) {
         goto NoNextAttr;
+    }
     SkipWs(curr, end);
     if ((curr == end) || ('=' != *curr)) {
         // attributes without values get their names as value in HTML
@@ -303,8 +343,9 @@ AttrInfo* HtmlToken::NextAttr() {
         // attribute with quoted value
         ++curr;
         attrInfo.val = curr;
-        if (!SkipUntil(curr, end, *(curr - 1)))
+        if (!SkipUntil(curr, end, *(curr - 1))) {
             goto NoNextAttr;
+        }
         attrInfo.valLen = curr - attrInfo.val;
         ++curr;
     } else {
@@ -329,8 +370,9 @@ static bool SkipUntilTagEnd(const char*& s, const char* end) {
             return true;
         }
         if (('\'' == c) || ('"' == c)) {
-            if (!SkipUntil(s, end, c))
+            if (!SkipUntil(s, end, c)) {
                 return false;
+            }
             ++s;
         }
     }
@@ -339,8 +381,9 @@ static bool SkipUntilTagEnd(const char*& s, const char* end) {
 
 // Returns next part of html or nullptr if finished
 HtmlToken* HtmlPullParser::Next() {
-    if (currPos >= end)
+    if (currPos >= end) {
         return nullptr;
+    }
 
 Next:
     const char* start = currPos;
@@ -379,7 +422,7 @@ Next:
         return &currToken;
     }
 
-    CrashIf('>' != *currPos);
+    ReportIf('>' != *currPos);
     if (currPos == start || currPos == start + 1 && *start == '/') {
         // skip empty tags (</>), because we're lenient
         ++currPos;

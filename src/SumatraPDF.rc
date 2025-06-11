@@ -44,13 +44,12 @@ BEGIN
     BEGIN
         BLOCK "040904E4"
         BEGIN
-            VALUE "FileDescription", "SumatraPDF"
+            VALUE "FileDescription", kAppName
             VALUE "FileVersion", VER_RESOURCE_STR
-            VALUE "LegalCopyright", COPYRIGHT_STR
-            VALUE "OriginalFilename", "SumatraPDF.exe"
-            VALUE "ProductName", "SumatraPDF"
+            VALUE "LegalCopyright", kCopyrightStr
+            VALUE "ProductName", kAppName
             VALUE "ProductVersion", VER_RESOURCE_STR
-            VALUE "CompanyName", PUBLISHER_STR
+            VALUE "CompanyName", kPublisherStr
         END
     END
     BLOCK "VarFileInfo"
@@ -59,97 +58,37 @@ BEGIN
     END
 END
 
+/////////////////////////////////////////////////////////////////////////////
+
+// when building fully static, portable executable, INSTALL_PAYLOAD_ZIP is not defined
+// for combined executable / installer, it's an lzsa archive that contains
+// libmupdf.dll, PdfPreview.dll and PdfFilter.dll
+#ifdef INSTALL_PAYLOAD_ZIP
+IDR_DLL_PAK             RCDATA               QM(INSTALL_PAYLOAD_ZIP)
+#endif
+
+IDR_TRANSLATIONS        RCDATA "..\\translations\\translations-good.txt"
+//IDR_TRANSLATIONS      RCDATA "..\\translations\\translations.txt"
+
+IDR_MANUAL_PAK          RCDATA               "..\\docs\\manual.dat"
 
 /////////////////////////////////////////////////////////////////////////////
-//
-// Icon
-//
 
 // Icon with lowest ID value placed first to ensure application icon
 // remains consistent on all systems.
-IDI_SUMATRAPDF          ICON                    "SumatraPDF-smaller.ico"
-IDI_PDFDOC              ICON                    "PdfDoc.ico"
+IDI_SUMATRAPDF          ICON "..\\gfx\\SumatraPDF-smaller.ico"
+// for compath with pre 3.4 registry association for pre-win10
+// have icon as ,1, which is index of this icon. unless we delete
+// those old registry on install, the icon would change
+2                       ICON "..\\gfx\\PdfDoc.ico"
+3                       ICON "..\\gfx\\gfxalt\\epub-32bit.ico"
+4                       ICON "..\\gfx\\gfxalt\\cbx-32bit.ico"
 
 /////////////////////////////////////////////////////////////////////////////
-//
-// Accelerator
-//
 
-IDC_SUMATRAPDF ACCELERATORS
-BEGIN
-    "A",            IDM_SELECT_ALL,         VIRTKEY, CONTROL
-    "C",            IDM_COPY_SELECTION,     VIRTKEY, CONTROL
-    "D",            IDM_PROPERTIES,         VIRTKEY, CONTROL
-    "F",            IDM_FIND_FIRST,         VIRTKEY, CONTROL
-    "G",            IDM_GOTO_PAGE,          VIRTKEY, CONTROL
-    "L",            IDM_VIEW_PRESENTATION_MODE, VIRTKEY, CONTROL
-    "L",            IDM_VIEW_FULLSCREEN,    VIRTKEY, SHIFT, CONTROL
-    "O",            IDM_OPEN,               VIRTKEY, CONTROL
-    "S",            IDM_SAVEAS,             VIRTKEY, CONTROL
-    "S",            IDM_SAVEAS_BOOKMARK,    VIRTKEY, SHIFT, CONTROL
-    "P",            IDM_PRINT,              VIRTKEY, CONTROL
-    "Q",            IDM_EXIT,               VIRTKEY, CONTROL
-    "W",            IDM_CLOSE,              VIRTKEY, CONTROL
-    "Y",            IDM_ZOOM_CUSTOM,        VIRTKEY, CONTROL
-    "0",            IDM_ZOOM_FIT_PAGE,      VIRTKEY, CONTROL
-    VK_NUMPAD0,     IDM_ZOOM_FIT_PAGE,      VIRTKEY, CONTROL
-    "1",            IDM_ZOOM_ACTUAL_SIZE,   VIRTKEY, CONTROL
-    VK_NUMPAD1,     IDM_ZOOM_ACTUAL_SIZE,   VIRTKEY, CONTROL
-    "2",            IDM_ZOOM_FIT_WIDTH,     VIRTKEY, CONTROL
-    VK_NUMPAD2,     IDM_ZOOM_FIT_WIDTH,     VIRTKEY, CONTROL
-    "3",            IDM_ZOOM_FIT_CONTENT,   VIRTKEY, CONTROL
-    VK_NUMPAD3,     IDM_ZOOM_FIT_CONTENT,   VIRTKEY, CONTROL
-    "6",            IDM_VIEW_SINGLE_PAGE,   VIRTKEY, CONTROL
-    VK_NUMPAD6,     IDM_VIEW_SINGLE_PAGE,   VIRTKEY, CONTROL
-    "7",            IDM_VIEW_FACING,        VIRTKEY, CONTROL
-    VK_NUMPAD7,     IDM_VIEW_FACING,        VIRTKEY, CONTROL
-    "8",            IDM_VIEW_BOOK,          VIRTKEY, CONTROL
-    VK_NUMPAD8,     IDM_VIEW_BOOK,          VIRTKEY, CONTROL
-    VK_ADD,         IDT_VIEW_ZOOMIN,        VIRTKEY, CONTROL
-    VK_ADD,         IDM_VIEW_ROTATE_RIGHT,  VIRTKEY, SHIFT, CONTROL
-    VK_OEM_PLUS,    IDT_VIEW_ZOOMIN,        VIRTKEY, CONTROL
-    VK_OEM_PLUS,    IDM_VIEW_ROTATE_RIGHT,  VIRTKEY, SHIFT, CONTROL
-    VK_INSERT,      IDM_COPY_SELECTION,     VIRTKEY, CONTROL
-    VK_F2,          IDM_RENAME_FILE,        VIRTKEY
-    VK_F3,          IDM_FIND_NEXT,          VIRTKEY
-    VK_F3,          IDM_FIND_PREV,          VIRTKEY, SHIFT
-    VK_F3,          IDM_FIND_NEXT_SEL,      VIRTKEY, CONTROL
-    VK_F3,          IDM_FIND_PREV_SEL,      VIRTKEY, SHIFT, CONTROL
-    VK_F4,          IDM_CLOSE,              VIRTKEY, CONTROL
-    VK_F5,          IDM_VIEW_PRESENTATION_MODE, VIRTKEY
-    VK_F6,          IDM_MOVE_FRAME_FOCUS,   VIRTKEY
-    VK_F8,          IDM_VIEW_SHOW_HIDE_TOOLBAR, VIRTKEY
-    VK_F9,          IDM_VIEW_SHOW_HIDE_MENUBAR, VIRTKEY
-    VK_F11,         IDM_VIEW_FULLSCREEN,    VIRTKEY
-    VK_F11,         IDM_VIEW_PRESENTATION_MODE, VIRTKEY, SHIFT
-    VK_F12,         IDM_VIEW_BOOKMARKS,     VIRTKEY
-    VK_SUBTRACT,    IDT_VIEW_ZOOMOUT,       VIRTKEY, CONTROL
-    VK_SUBTRACT,    IDM_VIEW_ROTATE_LEFT,   VIRTKEY, SHIFT, CONTROL
-    VK_OEM_MINUS,   IDT_VIEW_ZOOMOUT,       VIRTKEY, CONTROL
-    VK_OEM_MINUS,   IDM_VIEW_ROTATE_LEFT,   VIRTKEY, SHIFT, CONTROL
-    VK_LEFT,        IDM_GOTO_NAV_BACK,      VIRTKEY, ALT
-    VK_RIGHT,       IDM_GOTO_NAV_FORWARD,   VIRTKEY, ALT
-END
-
-// TODO: those should be compressed
-#ifdef _WIN64
-1                   RCDATA               "../ext/UnrarDLL/x64/UnRAR64.dll"
-#else
-1                   RCDATA               "../ext/UnrarDLL/UnRAR.dll"
-#endif
-
-/////////////////////////////////////////////////////////////////////////////
-//
-// Bitmap
-//
-
-IDB_TOOLBAR             BITMAP                  "toolbar_11.bmp"
 IDB_RELOADING_CUE       BITMAP                  "reloading.bmp"
 
 /////////////////////////////////////////////////////////////////////////////
-//
-// Dialog
-//
 
 IDD_DIALOG_GOTO_PAGE DIALOGEX 0, 0, 158, 45
 STYLE DS_SETFONT | DS_MODALFRAME | DS_FIXEDSYS | WS_POPUP | WS_CAPTION | WS_SYSMENU
@@ -204,26 +143,14 @@ END
 IDD_DIALOG_CHANGE_LANGUAGE DIALOGEX 0, 0, 200, 259
 STYLE DS_SETFONT | DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_THICKFRAME
 CAPTION "Change Language"
-FONT 8, "MS Shell Dlg", 400, 0, 0x1
+FONT 10, "MS Shell Dlg", 400, 0, 0x1
 BEGIN
     LISTBOX         IDC_CHANGE_LANG_LANG_LIST,6,6,188,227,LBS_NOINTEGRALHEIGHT | WS_VSCROLL | WS_TABSTOP
     DEFPUSHBUTTON   "OK",IDOK,88,239,50,14
     PUSHBUTTON      "Cancel",IDCANCEL,144,239,50,14
 END
 
-IDD_DIALOG_NEW_VERSION DIALOGEX 0, 0, 260, 69
-STYLE DS_SETFONT | DS_MODALFRAME | DS_FIXEDSYS | WS_POPUP | WS_CAPTION | WS_SYSMENU
-CAPTION "New version available"
-FONT 8, "MS Shell Dlg", 400, 0, 0x1
-BEGIN
-    LTEXT           "",IDC_YOU_HAVE,6,6,248,9
-    LTEXT           "",IDC_NEW_AVAILABLE,6,20,248,9
-    CONTROL         "",IDC_SKIP_THIS_VERSION,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,6,34,248,9
-    DEFPUSHBUTTON   "Download",IDOK,108,49,70,14
-    PUSHBUTTON      "&No, thanks",IDCANCEL,184,49,70,14
-END
-
-IDD_DIALOG_SETTINGS DIALOGEX 0, 0, 240, 241
+IDD_DIALOG_SETTINGS DIALOGEX 0, 0, 240, 223
 STYLE DS_SETFONT | DS_MODALFRAME | DS_SETFOREGROUND | DS_FIXEDSYS | DS_CENTER | WS_POPUP | WS_VISIBLE | WS_CAPTION | WS_SYSMENU
 CAPTION "Settings"
 FONT 8, "MS Shell Dlg", 400, 0, 0x1
@@ -237,18 +164,17 @@ BEGIN
                     "Button",BS_AUTOCHECKBOX | WS_TABSTOP,12,53,216,9
     CONTROL         "&Remember these settings for each document",IDC_REMEMBER_STATE_PER_DOCUMENT,
                     "Button",BS_AUTOCHECKBOX | WS_TABSTOP,12,66,216,9
-    GROUPBOX        "Advanced",IDC_SECTION_ADVANCED,6,87,228,70
+    GROUPBOX        "Advanced",IDC_SECTION_ADVANCED,6,87,228,52
     CONTROL         "Use &tabs",IDC_USE_TABS,
                     "Button",BS_AUTOCHECKBOX | WS_TABSTOP,12,97,216,9
     CONTROL         "Automatically check for &updates",IDC_CHECK_FOR_UPDATES,
                     "Button",BS_AUTOCHECKBOX | WS_TABSTOP,12,110,216,9
     CONTROL         "Remember &opened files",IDC_REMEMBER_OPENED_FILES,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,12,123,216,9
-    PUSHBUTTON      "Make SumatraPDF a default PDF reader",IDC_SET_DEFAULT_READER,12,137,216,14
-    GROUPBOX        "Set inverse search command-line",IDC_SECTION_INVERSESEARCH,6,163,228,52
-    LTEXT           "Enter the command-line to invoke when you double-click on the PDF document:",IDC_CMDLINE_LABEL,12,175,216,18
-    COMBOBOX        IDC_CMDLINE,12,195,216,13,CBS_DROPDOWN | CBS_AUTOHSCROLL | CBS_HASSTRINGS | CBS_DISABLENOSCROLL | WS_TABSTOP
-    DEFPUSHBUTTON   "OK",IDOK,128,221,50,14
-    PUSHBUTTON      "Cancel",IDCANCEL,184,221,50,14
+    GROUPBOX        "Set inverse search command-line",IDC_SECTION_INVERSESEARCH,6,145,228,52
+    LTEXT           "Enter the command-line to invoke when you double-click on the PDF document:",IDC_CMDLINE_LABEL,12,157,216,18
+    COMBOBOX        IDC_CMDLINE,12,177,216,13,CBS_DROPDOWN | CBS_AUTOHSCROLL | CBS_HASSTRINGS | CBS_DISABLENOSCROLL | WS_TABSTOP
+    DEFPUSHBUTTON   "OK",IDOK,128,203,50,14
+    PUSHBUTTON      "Cancel",IDCANCEL,184,203,50,14
 END
 
 IDD_DIALOG_CUSTOM_ZOOM DIALOGEX 0, 0, 116, 60
@@ -290,16 +216,9 @@ BEGIN
     EDITTEXT        IDC_FAV_NAME_EDIT,7,20,222,14,ES_AUTOHSCROLL
 END
 
-#ifdef HAS_PUBLIC_APP_KEY
-IDD_PUBLIC_APP_KEY  RCDATA                      "SumatraPDF.key"
-#endif
-
 /////////////////////////////////////////////////////////////////////////////
-//
-// RT_MANIFEST
-//
 
-1                       RT_MANIFEST             "SumatraPDF.exe.manifest"
+1                       RT_MANIFEST          "SumatraPDF.exe.manifest"
 
 #ifdef APSTUDIO_INVOKED
 /////////////////////////////////////////////////////////////////////////////

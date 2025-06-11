@@ -1,4 +1,4 @@
-/* Copyright 2018 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2022 the SumatraPDF project authors (see AUTHORS file).
    License: GPLv3 */
 
 // Re-declare variables for when building libmupdf.dll,
@@ -7,8 +7,14 @@
 // link this file along libmupdf.lib and omit it when
 // building a static SumatraPDF.exe.
 
+#if defined(_MSC_VER)
+#pragma warning(push)
+#pragma warning(disable : 4100)
+#pragma warning(disable : 4611)
+#endif /* _MSC_VER */
+
 extern "C" {
-#include <mupdf/fitz/math.h>
+#include <mupdf/fitz/geometry.h>
 }
 
 // copied from mupdf/source/fitz/geometry.c
@@ -21,10 +27,9 @@ const fz_rect fz_unit_rect = {0, 0, 1, 1};
 
 const fz_irect fz_infinite_irect = {1, 1, -1, -1};
 const fz_irect fz_empty_irect = {0, 0, 0, 0};
-const fz_irect fz_unit_bbox = {0, 0, 1, 1};
 
-// adapted for mupdf/source/fitz/time.c
-
-extern "C" void fz_redirect_dll_io_to_console() {
-    fz_redirect_io_to_console();
+extern "C" {
+#include <mupdf/fitz/color.h>
 }
+// copied from colorspace.c
+const fz_color_params fz_default_color_params = {FZ_RI_RELATIVE_COLORIMETRIC, 1, 0, 0};

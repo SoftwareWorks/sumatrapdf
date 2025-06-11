@@ -1,22 +1,17 @@
-/* Copyright 2018 the SumatraPDF project authors (see AUTHORS file).
+/* Copyright 2022 the SumatraPDF project authors (see AUTHORS file).
    License: GPLv3 */
 
-bool CouldBePDFDoc(TabInfo* tab);
+bool HasKnownExternalViewerForCmd(int cmd);
 
-bool CanViewWithFoxit(TabInfo* tab = nullptr);
-bool ViewWithFoxit(TabInfo* tab, const WCHAR* args = nullptr);
-bool CanViewWithPDFXChange(TabInfo* tab = nullptr);
-bool ViewWithPDFXChange(TabInfo* tab, const WCHAR* args = nullptr);
-bool CanViewWithAcrobat(TabInfo* tab = nullptr);
-bool ViewWithAcrobat(TabInfo* tab, const WCHAR* args = nullptr);
+void DetectExternalViewers();
+void FreeExternalViewers();
+bool CanViewWithKnownExternalViewer(WindowTab* tab, int cmd);
+bool ViewWithKnownExternalViewer(WindowTab* tab, int cmd);
 
-bool CanViewWithXPSViewer(TabInfo* tab);
-bool ViewWithXPSViewer(TabInfo* tab, const WCHAR* args = nullptr);
+bool CanSendAsEmailAttachment(WindowTab* tab = nullptr);
+bool SendAsEmailAttachment(WindowTab* tab, HWND hwndParent = nullptr);
 
-bool CanViewWithHtmlHelp(TabInfo* tab);
-bool ViewWithHtmlHelp(TabInfo* tab, const WCHAR* args = nullptr);
+bool CouldBePDFDoc(WindowTab*);
+bool PathMatchFilter(const char* path, const char* filter);
 
-bool ViewWithExternalViewer(TabInfo* tab, size_t idx);
-
-bool CanSendAsEmailAttachment(TabInfo* tab = nullptr);
-bool SendAsEmailAttachment(TabInfo* tab, HWND hwndParent = nullptr);
+bool RunWithExe(WindowTab* tab, const char* cmdLine, const char* filter);
